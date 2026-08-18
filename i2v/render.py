@@ -23,6 +23,7 @@ the work over cores.
 import os
 import re
 import subprocess
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from .probe import NO_WINDOW
@@ -227,6 +228,13 @@ def _run_ffmpeg(args, total_seconds=None, on_progress=None):
         errors="replace",
         creationflags=NO_WINDOW,
     )
+    # stderr is drained on its own thread. Reading it only after stdout would
+    # let a noisy failure fill the pipe buffer and block ffmpeg indefinitely.
+    collected = []
+    drain = threading.Thread(target=lambda: collected.append(process.stderr.read()))
+    drain.daemon = True
+    drain.start()
+
     if on_progress and total_seconds:
         for line in process.stdout:
             match = _PROGRESS_RE.match(line.strip())
@@ -237,8 +245,9 @@ def _run_ffmpeg(args, total_seconds=None, on_progress=None):
     else:
         process.stdout.read()
 
-    stderr = process.stderr.read()
     process.wait()
+    drain.join(timeout=10)
+    stderr = collected[0] if collected else ""
     if process.returncode != 0:
         tail = "\n".join(stderr.strip().splitlines()[-15:])
         raise RenderError("ffmpeg failed (exit %d):\n%s" % (process.returncode, tail))
@@ -290,7 +299,7 @@ def mux(tools, options, parts, job_dir, total_seconds, on_progress=None):
 
 def render(tools, options, encoder, timeline, job_dir, jobs, on_progress=None):
     """Encode every chunk, concurrently when there is more than one, then mux."""
-    chunks = chunk_timeline(timeline, jobs)
+    chunks = chunk_timeline(timeline, jobs, options["chunk_size"])
     total_seconds = timeline[-1]["end"]
 
     def work(pair):
@@ -308,11 +317,16 @@ def render(tools, options, encoder, timeline, job_dir, jobs, on_progress=None):
             for result in pool.map(work, enumerate(chunks)):
                 parts.append(result)
                 if on_progress:
-                    # The mux pass is cheap, so chunk completion is the progress.
                     on_progress(0.9 * len(parts) / len(chunks))
 
     parts.sort()
-    mux(tools, options, [path for _, path in parts], job_dir, total_seconds, None)
+    # Encoding is the first 90 percent of the bar, the mux pass fills the rest.
+    mux_progress = None
+    if on_progress:
+        def mux_progress(fraction):
+            on_progress(0.9 + 0.1 * fraction)
+
+    mux(tools, options, [path for _, path in parts], job_dir, total_seconds, mux_progress)
     if on_progress:
         on_progress(1.0)
     return options["output"]
