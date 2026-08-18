@@ -62,6 +62,10 @@ def build_parser():
     parser.add_argument("--encoder", choices=["auto", "qsv", "x264"], default=DEFAULTS["encoder"],
                         help="auto times both encoders once and caches the faster one")
 
+    parser.add_argument("--force", action="store_true",
+                        help="build the video even if the images and timestamps do not "
+                             "line up, instead of stopping. Extra images are ignored, "
+                             "extra timestamps are absorbed by the last image")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the resolved timeline and exit without encoding")
     parser.add_argument("--keep-temp", action="store_true",
@@ -160,7 +164,13 @@ def main(argv=None):
     starts = [start for start, _ in transcript.parse(args.transcript)]
     images = render.find_images(args.images)
     total_audio = probe.total_duration(tools, args.audio)
-    timeline = render.build_timeline(starts, images, total_audio, args.fps)
+    def warn(text):
+        sys.stderr.write("  warning: %s\n" % text)
+        sys.stderr.flush()
+
+    timeline = render.build_timeline(
+        starts, images, total_audio, args.fps,
+        force=args.force, on_warning=None if args.quiet else warn)
 
     notify = None if args.quiet else (lambda text: print(text, flush=True))
     encoder = probe.detect_encoder(tools, args.encoder, temp_root, notify)

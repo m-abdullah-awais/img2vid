@@ -25,6 +25,7 @@ Or just double click **Run.bat** and let it find your files for you.
 - [Command reference](#command-reference)
 - [How it works](#how-it-works)
 - [Performance](#performance)
+- [When the counts do not match](#when-the-counts-do-not-match)
 - [Stopping a render](#stopping-a-render)
 - [Verification](#verification)
 - [Project layout](#project-layout)
@@ -76,6 +77,14 @@ Run.bat also forwards any flags you give it, so this works too:
 
 ```
 Run.bat --fps 10
+Run.bat --force
+```
+
+If you launch it by double clicking there is nowhere to type a flag, so open Run.bat
+in a text editor and put what you want on the `FLAGS` line near the top:
+
+```
+set "FLAGS=--force --fps 15"
 ```
 
 It checks for Python and ffmpeg up front and tells you exactly what is missing rather
@@ -204,6 +213,7 @@ and `--bg` to change the letterbox colour.
 | `--jobs` | `0` | Concurrent encoder processes, `0` chooses automatically |
 | `--chunk-size` | `24` | Images per encoder process |
 | `--encoder` | `auto` | `auto` times both once and keeps the faster, or force `qsv` / `x264` |
+| `--force` | off | Build anyway when the images and timestamps do not line up |
 | `--dry-run` | off | Print the resolved timeline and exit |
 | `--keep-temp` | off | Keep intermediate files in `temp/` for inspection |
 | `--quiet` | off | Suppress progress output |
@@ -329,6 +339,46 @@ Notes on tuning:
 - **Benchmark on a quiet machine.** Anything else encoding at the same time will
   distort the result badly. This was learned the hard way.
 
+## When the counts do not match
+
+Normally the number of images must equal the number of transcript lines, and the run
+stops if it does not. That is deliberate. If the tool quietly guessed, every image after
+the missing one would be shown against the wrong line, and you would not find out until
+you watched the finished video.
+
+When you would rather have the video anyway, pass `--force`:
+
+```
+python img2vid.py -t script.srt -i .\images -a narration.mp3 --force
+```
+
+Run.bat will also offer it. If the counts do not match it prints the problem and asks
+whether to continue, so a double click can recover without editing anything.
+
+`--force` repairs four things, and says what it did each time:
+
+| problem | what `--force` does |
+| --- | --- |
+| fewer images than timestamps | Pairs off as many as it can. The last image is held until the audio ends, absorbing the leftover timestamps. |
+| more images than timestamps | Ignores the extra images at the end and names them. |
+| audio stops before the last timestamp | Drops the timestamps that fall past the end of the audio. |
+| two timestamps closer than one frame | Drops the shorter of the two. |
+
+For example, 105 timestamps against 104 images gives:
+
+```
+  warning: --force: 105 timestamps but 104 images. Using the first 104 timestamps,
+           so image 104 holds until the audio ends.
+```
+
+Two things worth knowing. `--force` changes nothing at all when the inputs already line
+up, so it is safe to leave on. And it never breaks the timing guarantee: the frame counts
+still add up to exactly the length of the audio, so the video cannot drift. It is only
+the pairing of images to lines that is being repaired, never the clock.
+
+It still refuses genuinely impossible input, such as audio that ends before the first
+timestamp.
+
 ## Stopping a render
 
 Closing the terminal window, or pressing Ctrl+C, stops everything. There are no
@@ -419,7 +469,8 @@ Install ffmpeg and put it on `PATH`, or drop `ffmpeg.exe` and `ffprobe.exe` into
 
 **`Count mismatch: N transcript timestamps but M images`**
 There must be exactly one image per transcript line. Check for a stray file in the
-images folder, or a blank line that was parsed as a cue.
+images folder, or a blank line that was parsed as a cue. Pass `--force` to build the
+video anyway, or put `--force` on the `FLAGS` line in Run.bat.
 
 **`The audio is Xs long but the last transcript timestamp is at Ys`**
 The audio has to run past the final timestamp, since the last image is held until the

@@ -111,7 +111,41 @@ def run():
     print(flush=True)
 
     argv = ["-t", transcript, "-i", images, "-a", *audio, "-o", output]
-    return main(argv + sys.argv[1:])
+    passed = sys.argv[1:]
+
+    from i2v.render import RenderError  # noqa: PLC0415
+
+    try:
+        return main(argv + passed)
+    except RenderError as error:
+        # Double clicking leaves no way to add a flag, so offer it here instead
+        # of making the user edit Run.bat and start over.
+        if "--force" in passed or not _can_prompt():
+            raise
+        print()
+        print("  %s" % str(error).splitlines()[0])
+        print()
+        if not _confirm("  Build the video anyway, ignoring the mismatch?"):
+            print("  Nothing was rendered.")
+            return 1
+        print()
+        return main(argv + passed + ["--force"])
+
+
+def _can_prompt():
+    """Only offer a prompt when there is a real console to answer from."""
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _confirm(question):
+    try:
+        answer = input("%s [y/N] " % question)
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return answer.strip().lower() in ("y", "yes")
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@ CHUNK_SIZE = 24
 
 # How many chunks to aim for per worker. More than one so the pool can even out
 # uneven chunks instead of stalling on the last one.
-CHUNKS_PER_JOB = 3
+CHUNKS_PER_JOB = 2
 
 _NUM_SPLIT = re.compile(r"(\d+)")
 _PROGRESS_RE = re.compile(r"^out_time_(?:us|ms)=(-?\d+)$")
@@ -120,7 +120,7 @@ def find_images(folder):
 # Timeline
 # --------------------------------------------------------------------------
 
-def build_timeline(starts, images, total_audio, fps):
+def build_timeline(starts, images, total_audio, fps, force=False, on_warning=None):
     """Pair each image with an exact whole number of frames.
 
     Every boundary is rounded to a frame once and shared by the segments on
@@ -129,45 +129,105 @@ def build_timeline(starts, images, total_audio, fps):
 
     The first image is pulled back to time zero even if the transcript starts
     later, so the video never opens on black.
+
+    Three things can make the inputs unusable: the counts not matching, audio
+    that stops before the last timestamp, and two timestamps closer together
+    than a single frame. Normally each is a hard error, because silently
+    guessing would produce a mistimed video that looks fine until you watch it.
+    With force set, each is repaired instead and reported through on_warning.
     """
+    warn = on_warning or (lambda text: None)
+
+    # 1. One image per timestamp.
     if len(images) != len(starts):
-        raise RenderError(
-            "Count mismatch: %d transcript timestamps but %d images.\n"
-            "  first images: %s\n"
-            "There must be exactly one image per timestamp."
-            % (
-                len(starts),
-                len(images),
-                ", ".join(os.path.basename(item) for item in images[:5]) or "none",
+        if not force:
+            raise RenderError(
+                "Count mismatch: %d transcript timestamps but %d images.\n"
+                "  first images: %s\n"
+                "There must be exactly one image per timestamp.\n"
+                "Pass --force to build the video anyway from whichever there are fewer of."
+                % (
+                    len(starts),
+                    len(images),
+                    ", ".join(os.path.basename(item) for item in images[:5]) or "none",
+                )
             )
-        )
+        keep = min(len(images), len(starts))
+        if not keep:
+            raise RenderError("Nothing to render: no images or no timestamps.")
+        if len(images) > keep:
+            warn("--force: %d timestamps but %d images. Ignoring the last %d image(s): %s"
+                 % (len(starts), len(images), len(images) - keep,
+                    ", ".join(os.path.basename(item) for item in images[keep:][:5])))
+        else:
+            warn("--force: %d timestamps but %d images. Using the first %d timestamps, "
+                 "so image %d holds until the audio ends."
+                 % (len(starts), len(images), keep, keep))
+        starts, images = starts[:keep], images[:keep]
 
+    # 2. The audio has to outlast the final timestamp, since the last image is
+    #    held until the audio ends.
     if total_audio <= starts[-1]:
-        raise RenderError(
-            "The audio is %.3fs long but the last transcript timestamp is at "
-            "%.3fs. The audio must run past the final timestamp."
-            % (total_audio, starts[-1])
-        )
+        if not force:
+            raise RenderError(
+                "The audio is %.3fs long but the last transcript timestamp is at "
+                "%.3fs. The audio must run past the final timestamp.\n"
+                "Pass --force to drop the timestamps that fall past the end of the audio."
+                % (total_audio, starts[-1])
+            )
+        keep = sum(1 for value in starts if value < total_audio)
+        if not keep:
+            raise RenderError(
+                "Even with --force there is nothing to render: the audio is %.3fs "
+                "long and the first timestamp is at %.3fs."
+                % (total_audio, starts[0])
+            )
+        warn("--force: audio ends at %.3fs. Dropping %d timestamp(s) past that point."
+             % (total_audio, len(starts) - keep))
+        starts, images = starts[:keep], images[:keep]
 
-    boundaries = [0] + [round(value * fps) for value in starts[1:]]
-    boundaries.append(round(total_audio * fps))
+    # 3. Quantise to whole frames. The first boundary is pinned to zero so the
+    #    video never opens on black.
+    end_boundary = round(total_audio * fps)
+    pairs = []
+    dropped = 0
+    for index, (start, image) in enumerate(zip(starts, images)):
+        boundary = 0 if index == 0 else round(start * fps)
+        if pairs and boundary <= pairs[-1][0]:
+            if not force:
+                raise RenderError(
+                    "Timestamps %d and %d are less than one frame apart at %d fps "
+                    "(%.3fs and %.3fs). Increase --fps or merge the lines.\n"
+                    "Pass --force to drop the shorter of the two."
+                    % (index, index + 1, fps, starts[index - 1], start)
+                )
+            dropped += 1
+            continue
+        pairs.append((boundary, image))
+
+    if end_boundary <= pairs[-1][0]:
+        # The final image would get no frames at all.
+        if not force or len(pairs) == 1:
+            raise RenderError(
+                "The last timestamp at %.3fs leaves no room before the audio ends "
+                "at %.3fs." % (pairs[-1][0] / fps, total_audio)
+            )
+        dropped += 1
+        pairs.pop()
+
+    if dropped:
+        warn("--force: dropped %d line(s) shorter than one frame at %d fps." % (dropped, fps))
 
     timeline = []
-    for index, image in enumerate(images):
-        frames = boundaries[index + 1] - boundaries[index]
-        if frames < 1:
-            raise RenderError(
-                "Timestamps %d and %d are less than one frame apart at %d fps "
-                "(%.3fs and %.3fs). Increase --fps or merge the lines."
-                % (index + 1, index + 2, fps, starts[index], starts[index + 1])
-            )
+    for index, (boundary, image) in enumerate(pairs):
+        following = pairs[index + 1][0] if index + 1 < len(pairs) else end_boundary
         timeline.append({
             "index": index,
             "image": image,
-            "frames": frames,
-            "start": boundaries[index] / fps,
-            "end": boundaries[index + 1] / fps,
-            "seconds": frames / fps,
+            "frames": following - boundary,
+            "start": boundary / fps,
+            "end": following / fps,
+            "seconds": (following - boundary) / fps,
         })
     return timeline
 

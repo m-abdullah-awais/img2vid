@@ -63,6 +63,20 @@ Priority is render speed. All heavy work is delegated to ffmpeg. Python only orc
   (`frames[i] = round(end*fps) - round(start*fps)`), so rounding error never accumulates
   and total video length matches total audio length exactly.
 
+## Behaviour Decisions
+
+- Count mismatches are a hard error by default, because silently pairing images to the
+  wrong lines produces a video that looks fine until watched. `--force` repairs it and
+  reports what it did.
+- `--force` relaxes all four input checks, not just the count. A flag that bypasses one
+  validation and then dies on the next is useless.
+- `--force` is a no-op on valid input, verified by comparing timelines, so it is safe to
+  leave switched on permanently in the Run.bat FLAGS line.
+- Forcing never touches the frame quantiser. Frame counts still sum to the audio length
+  exactly, so the video cannot drift. Only the image to line pairing is repaired.
+- Run.bat has a FLAGS line and an interactive prompt on mismatch, because a double click
+  gives the user nowhere to type a flag.
+
 ## Findings That Cost Time To Discover
 
 These were all measured on this machine. Do not undo them without re-measuring.
@@ -141,12 +155,18 @@ These were all measured on this machine. Do not undo them without re-measuring.
    alone made the thread pool start the next queued chunk, so a cancel took as long
    as the remaining work.
 
-7. **Progress must come from frame counts, not completed chunks.** Reporting once per
+7. **CHUNKS_PER_JOB is 2, measured.** Best of 3 on the 100 image fixture:
+   1 chunk per job 46.1s, 2 per job 44.7s at 3 percent spread, 3 per job 44.7s but with
+   a 178 percent spread. More chunks costs process startup, fewer chunks leaves cores
+   idle on the tail. Two is the flat spot. Progress smoothness does not depend on this
+   any more, since progress comes from frame counts.
+
+8. **Progress must come from frame counts, not completed chunks.** Reporting once per
    finished chunk meant the bar sat at zero for 54 seconds of a 100 second render and
    then jumped, which reads as a hung program. Each chunk now runs with
    `-progress pipe:1` and the frame counts are summed across concurrent chunks.
 
-8. **Killing a background shell does not kill the ffmpeg it spawned.** A stopped sweep
+9. **Killing a background shell does not kill the ffmpeg it spawned.** A stopped sweep
    kept running and silently competed with a benchmark, making every number in it too
    slow and useless. Always confirm with `Get-Process ffmpeg, python` afterwards, and
    never trust a benchmark that ran while anything else was encoding.
