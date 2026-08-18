@@ -52,7 +52,7 @@ def build_parser():
     parser.add_argument("--chunk-size", type=int, default=render.CHUNK_SIZE,
                         help="images per encoder process")
     parser.add_argument("--encoder", choices=["auto", "qsv", "x264"], default=DEFAULTS["encoder"],
-                        help="auto probes for hardware support once and caches the answer")
+                        help="auto times both encoders once and caches the faster one")
 
     parser.add_argument("--dry-run", action="store_true",
                         help="print the resolved timeline and exit without encoding")
@@ -141,7 +141,8 @@ def main(argv=None):
     total_audio = probe.total_duration(tools, args.audio)
     timeline = render.build_timeline(starts, images, total_audio, args.fps)
 
-    encoder = probe.detect_encoder(tools, args.encoder, temp_root)
+    notify = None if args.quiet else lambda text: print(text)
+    encoder = probe.detect_encoder(tools, args.encoder, temp_root, notify)
     jobs = choose_jobs(args.jobs, encoder["name"], len(timeline))
     chunks = len(render.chunk_timeline(timeline, jobs, args.chunk_size))
     jobs = min(jobs, chunks)

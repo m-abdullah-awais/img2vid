@@ -5,7 +5,8 @@ finished MP4. Each image is held on screen from its own timestamp until the next
 and the last image runs until the audio ends.
 
 Built for speed. All heavy lifting is delegated to ffmpeg, work is spread across CPU
-cores, and hardware encoding is used when the machine has it.
+cores, and the fastest encoder your machine has is chosen by timing them rather than
+by guessing.
 
 ```
 python img2vid.py -t script.srt -i .\images -a narration.mp3 -o video.mp4
@@ -112,11 +113,16 @@ python img2vid.py -t script.srt -i .\images -a narration.mp3 --dry-run
   -----------------------------------------------------------------------
   1  1.png                               0.000      3.400   3.400      102
   2  2.png                               3.400      7.100   3.700      111
-  3  3.png                               7.100     20.000  12.900      387
+  3  3.png                               7.100     11.900   4.800      144
+  4  4.png                              11.900     15.267   3.367      101
+  5  5.png                              15.267     20.000   4.733      142
   -----------------------------------------------------------------------
-  segments: 3   audio: 20.000s   video: 20.000s   frames: 600 @ 30 fps
-  encoder: qsv   chunks: 1   jobs: 1
+  segments: 5   audio: 20.000s   video: 20.000s   frames: 600 @ 30 fps
+  encoder: x264   chunks: 5   jobs: 5
 ```
+
+Note the frame counts add up to exactly 600, which is 20 seconds at 30fps. That is the
+guarantee the frame quantiser gives you: the video cannot drift against the audio.
 
 Several audio files are joined in the order you list them:
 
@@ -196,7 +202,7 @@ and `--bg` to change the letterbox colour.
 | `--bg` | `black` | Letterbox colour used by `--fit contain` |
 | `--jobs` | `0` | Concurrent encoder processes, `0` chooses automatically |
 | `--chunk-size` | `24` | Images per encoder process |
-| `--encoder` | `auto` | `auto`, `qsv` (hardware) or `x264` (software) |
+| `--encoder` | `auto` | `auto` times both once and keeps the faster, or force `qsv` / `x264` |
 | `--dry-run` | off | Print the resolved timeline and exit |
 | `--keep-temp` | off | Keep intermediate files in `temp/` for inspection |
 | `--quiet` | off | Suppress progress output |
@@ -235,6 +241,23 @@ stream came out shifted one frame early.
 The chunked approach is exact by construction instead of approximately right, and it
 is also what makes the work parallel. Both goals are served by the same design.
 
+### Choosing the encoder
+
+On first run the tool times every H.264 encoder the machine actually has, on a short
+burst of still frames, and keeps the faster one. The result is written to
+`temp/.encoder.json` and reused from then on, so the cost is paid once.
+
+This is measured rather than assumed on purpose. "Hardware is faster than software" is
+not reliably true for still image content: a modest integrated GPU can lose to a strong
+CPU, and the reverse is just as common. On the development machine software `libx264`
+won at 393 fps against Quick Sync at 255 fps, which is the opposite of what you would
+guess.
+
+The software encoder runs at `-preset ultrafast`. That is deliberate, and measured: on
+static 1080p frames it reaches 393 fps against 202 fps for `veryfast`, and the file is
+only about 7 percent larger. The slower presets spend their time on motion estimation,
+which buys nothing when consecutive frames are byte for byte identical.
+
 ### Colour handling
 
 Every image is forced to `rgb24` on the way in and converted to limited range bt709
@@ -262,7 +285,8 @@ Notes on tuning:
 
 - **Quick Sync is one fixed function engine.** Running many sessions against it does
   not make it finish sooner, so `--jobs 0` caps hardware encoding at a small number
-  of processes. Software encoding is the case that scales with cores.
+  of processes. Software encoding is the case that scales with cores, though libx264
+  already threads internally, so the gain from extra processes is real but modest.
 - **Lowering `--fps` is the single biggest lever.** A still slideshow loses nothing
   visually at a lower frame rate, and `--fps 10` cuts the frame count by two thirds.
   YouTube accepts it.
@@ -339,10 +363,12 @@ audio ends. Check that you passed every audio file, and in the right order.
 Two transcript lines are closer together than a single frame at the chosen frame
 rate. Raise `--fps` or merge the two lines.
 
-**Hardware encoding is not being picked up**
-The result of the hardware probe is cached in `temp/.encoder.json`. Delete that file
-to force a fresh probe, or pass `--encoder qsv` or `--encoder x264` to skip detection
-entirely.
+**The wrong encoder is being chosen**
+The timing trial result is cached in `temp/.encoder.json`, along with the measured
+speed of each candidate. Delete that file to force a fresh trial, or pass
+`--encoder qsv` or `--encoder x264` to skip detection entirely. Note that software
+`x264` legitimately beats Quick Sync on many machines for this kind of content, so a
+software pick is not necessarily a misdetection.
 
 ## Developer
 

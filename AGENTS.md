@@ -82,9 +82,32 @@ These were all measured on this machine. Do not undo them without re-measuring.
    Quick Sync is a single fixed function engine and peaks at about 3 concurrent sessions
    (137.6s at 1 job, 105.6s at 3, 110.7s at 6), which is why `--jobs 0` caps it.
 
-4. **The encoder is the wall, not the pipeline.** Raw ceiling for 18000 static 1080p
-   frames on this machine: x264 veryfast 208 fps, x264 ultrafast 420 fps, QSV veryfast
-   242 fps. The full pipeline reaches about 174 fps, so overhead over the raw ceiling is
-   roughly 28 percent. There is no large win left in the orchestration layer.
-   The two levers that actually matter are the encoder preset and `--fps`. Lowering the
-   frame rate is the biggest one by far, and costs nothing visually on a still slideshow.
+4. **The encoder is the wall, not the pipeline.** Measured on a real still PNG through
+   the actual filter chain, single process, static 1080p:
+
+   | encoder             | fps | size |
+   | ------------------- | --- | ---- |
+   | x264 ultrafast      | 393 | 1.5 MB |
+   | x264 superfast      | 228 | 1.4 MB |
+   | x264 veryfast       | 202 | 1.4 MB |
+   | x264 faster         | 122 | 1.4 MB |
+   | qsv veryfast        | 255 | 1.4 MB |
+   | qsv faster          | 251 | 1.4 MB |
+   | qsv fast            | 239 | 1.4 MB |
+
+   Conclusions that are now baked into the code:
+   - `x264 -preset ultrafast` is twice as fast as `veryfast` for about 7 percent more
+     size. For still frames the slower presets only buy better motion estimation, and
+     consecutive frames here are identical, so there is nothing to estimate.
+   - `-tune stillimage` measured as making no difference whatsoever. Removed.
+   - **Software beat hardware on this machine** (393 against 255). "Hardware is faster"
+     is not a safe assumption for still image content. This is why `detect_encoder`
+     now times the candidates and caches the winner instead of preferring QSV.
+
+   The remaining levers are `--fps` (biggest by far, and free on a still slideshow) and
+   nothing much else. The orchestration layer has no large win left in it.
+
+5. **Do not benchmark with `-f lavfi -i testsrc2` plus `select=eq(n,0)`.** ffmpeg still
+   generates and filters every source frame before the select drops them, so the
+   measurement is dominated by source generation rather than encoding. An earlier sweep
+   was thrown away for this reason. Benchmark against a real image file instead.
