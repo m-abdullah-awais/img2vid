@@ -2,11 +2,15 @@
 
 Persistent memory for this project. This is the only memory location, per the project rules.
 
-## Project Rules (binding, from claude-rules.md)
+## Project Rules (binding, from temp/claude-rules.md)
+
+Re-read `temp/claude-rules.md` at the start of a session. It is the source of truth and
+the user edits it.
+
 
 1. Never go outside this directory (`E:\YT\Images to Video`).
 2. Store all memory inside this same directory in this `AGENTS.md` file and no other place.
-3. Always follow the rules defined in `claude-rules.md`.
+3. Always follow the rules defined in `temp/claude-rules.md`.
 4. The developer details below must be included in project documentation.
 5. Do not push code. Only commit locally, time to time, per feature or phase.
 6. Never commit with a co author trailer of any kind.
@@ -17,6 +21,8 @@ Persistent memory for this project. This is the only memory location, per the pr
 11. Store all exported, tested or generated artefacts in the `./temp/` folder inside this directory.
 12. Keep replies straightforward, no filler.
 13. Do not change git config or other machine settings.
+14. Keep `claude-rules.md` in the `temp/` folder. `temp/` must be listed in `.gitignore`
+    so the whole folder is never tracked, and `claude-*.bat` must be ignored too.
 
 ## Developer
 

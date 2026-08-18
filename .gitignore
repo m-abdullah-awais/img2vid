@@ -1,6 +1,7 @@
 temp/
 input/
 output/
+claude-*.bat
 __pycache__/
 *.pyc
 *.mp4
