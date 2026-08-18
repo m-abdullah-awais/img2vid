@@ -55,6 +55,36 @@ Priority is render speed. All heavy work is delegated to ffmpeg. Python only orc
 - Durations are quantised to whole frames at shared boundaries
   (`frames[i] = round(end*fps) - round(start*fps)`), so rounding error never accumulates
   and total video length matches total audio length exactly.
-- The concat demuxer emits one frame per image, so `scale` and `pad` run once per image
-  rather than once per output frame. Frame duplication to the target fps happens after
-  the filter graph, where static frames are cheap to encode.
+
+## Findings That Cost Time To Discover
+
+These were all measured on this machine. Do not undo them without re-measuring.
+
+1. **The concat demuxer cannot be used for image timing.** It was the first design and it
+   was wrong. Durations are stored in whole microseconds, and a 30fps frame boundary is
+   33333.33 microseconds, which is not representable. Measured symptoms: segment
+   boundaries moved a frame either way, the final entry ignored its declared `duration`
+   completely, and the whole stream came out shifted one frame early. Adding a repeated
+   trailing `file` entry fixes only the last entry, not the drift. Setting an input `-r`
+   makes it far worse (one frame per image).
+   The replacement is `loop=loop=N-1:size=1` per image plus `concat` filter plus
+   `-frames:v`, which is exact by construction. Verified frame by frame.
+
+2. **JPEG and PNG produce different colour ranges.** A JPEG decodes to full range
+   `yuvj420p`, a PNG to limited range `yuv420p`. Chunks built from different source
+   formats then cannot be stream copied together without a visible brightness jump.
+   Fixed by pinning `format=rgb24` on the way in and
+   `scale=out_color_matrix=bt709:out_range=tv` on the way out, for every image.
+
+3. **libx264 already threads across all cores.** Running one encoder process per core is
+   therefore not the big win it looks like. Measured on the 300 image, 10 minute fixture:
+   1 job 152.9s, 8 jobs 119.3s. Real but modest, about 22 percent.
+   Quick Sync is a single fixed function engine and peaks at about 3 concurrent sessions
+   (137.6s at 1 job, 105.6s at 3, 110.7s at 6), which is why `--jobs 0` caps it.
+
+4. **The encoder is the wall, not the pipeline.** Raw ceiling for 18000 static 1080p
+   frames on this machine: x264 veryfast 208 fps, x264 ultrafast 420 fps, QSV veryfast
+   242 fps. The full pipeline reaches about 174 fps, so overhead over the raw ceiling is
+   roughly 28 percent. There is no large win left in the orchestration layer.
+   The two levers that actually matter are the encoder preset and `--fps`. Lowering the
+   frame rate is the biggest one by far, and costs nothing visually on a still slideshow.

@@ -11,10 +11,13 @@ cores, and hardware encoding is used when the machine has it.
 python img2vid.py -t script.srt -i .\images -a narration.mp3 -o video.mp4
 ```
 
+Or just double click **Run.bat** and let it find your files for you.
+
 ## Contents
 
 - [Why this exists](#why-this-exists)
 - [Requirements](#requirements)
+- [Run.bat, the no arguments way](#runbat-the-no-arguments-way)
 - [Quick start](#quick-start)
 - [Transcript formats](#transcript-formats)
 - [Matching images to timestamps](#matching-images-to-timestamps)
@@ -51,9 +54,34 @@ ffmpeg -version
 python img2vid.py --version
 ```
 
+## Run.bat, the no arguments way
+
+Double click **Run.bat**. The first run creates the folders it needs and tells you
+what to put in them:
+
+```
+input\
+  script.srt          your transcript, any of .srt .vtt .txt
+  images\             one image per transcript line
+  audio\              one or more audio files
+```
+
+Drop your files in, run it again, and the finished video appears in `output\` named
+after the transcript. Audio files are joined in natural filename order, so
+`part1.mp3`, `part2.mp3`, `part10.mp3` play in the order you would expect.
+
+Run.bat also forwards any flags you give it, so this works too:
+
+```
+Run.bat --fps 10
+```
+
+It checks for Python and ffmpeg up front and tells you exactly what is missing rather
+than failing with a stack trace.
+
 ## Quick start
 
-Arrange your inputs like this:
+For full control, call the tool directly. Arrange your inputs like this:
 
 ```
 project\
@@ -272,12 +300,16 @@ frame, so the checks are exhaustive rather than sampled:
 ## Project layout
 
 ```
+Run.bat               double click launcher, finds files in input\
+run.py                zero argument launcher that Run.bat calls
 img2vid.py            CLI entry point
 i2v\
   cli.py              argument parsing, orchestration, progress output
   transcript.py       SRT, WebVTT and plain timestamp parsing
   probe.py            ffprobe helpers, encoder detection with an on disk cache
   render.py           timeline, filter graphs, chunked encoding and muxing
+input\                created on first run, your source files
+output\               created on first run, finished videos
 temp\
   make_fixture.py     fixture generator, small and benchmark sizes
   verify.py           end to end frame accurate verification

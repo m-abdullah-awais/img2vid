@@ -1,4 +1,6 @@
 temp/
+input/
+output/
 __pycache__/
 *.pyc
 *.mp4
