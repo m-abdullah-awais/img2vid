@@ -25,6 +25,7 @@ Or just double click **Run.bat** and let it find your files for you.
 - [Command reference](#command-reference)
 - [How it works](#how-it-works)
 - [Performance](#performance)
+- [Stopping a render](#stopping-a-render)
 - [Verification](#verification)
 - [Project layout](#project-layout)
 - [Troubleshooting](#troubleshooting)
@@ -327,6 +328,38 @@ Notes on tuning:
   that curve.
 - **Benchmark on a quiet machine.** Anything else encoding at the same time will
   distort the result badly. This was learned the hard way.
+
+## Stopping a render
+
+Closing the terminal window, or pressing Ctrl+C, stops everything. There are no
+encoders left running in the background afterwards.
+
+This needs saying because it is not what you get for free. Killing a Python process on
+Windows does not reliably kill the ffmpeg processes it started, so the naive version of
+this tool could leave several encoders burning CPU on a render whose output would never
+be assembled. To prevent that, the orchestrator puts itself in a Windows job object with
+`KILL_ON_JOB_CLOSE`, which makes the operating system terminate every child process the
+moment the parent goes away, however it goes away.
+
+Measured behaviour:
+
+| how it ends | encoders left | temp left | notes |
+| --- | --- | --- | --- |
+| finishes normally | none | none | output written |
+| terminal closed or process killed | none, immediately | one folder | swept on the next run |
+| Ctrl+C or Ctrl+Break | none, within a few seconds | none | prints `cancelled`, exit code 130 |
+
+The hard kill case was verified over four consecutive runs: four ffmpeg processes running,
+zero remaining, every time.
+
+A hard kill cannot run the normal cleanup, so it leaves one `temp/job_<pid>` folder behind.
+The next run deletes any such folder whose process is no longer alive, so they do not
+accumulate.
+
+**There is no resume.** A stopped render is abandoned, not paused. Starting again begins
+from the first frame. If you want a render to survive closing the window, do not close the
+window: leave it open, or launch it detached with something like
+`start /b python img2vid.py ...`.
 
 ## Verification
 

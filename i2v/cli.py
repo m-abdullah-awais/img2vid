@@ -3,6 +3,7 @@
 import argparse
 import os
 import shutil
+import signal
 import sys
 import time
 
@@ -140,6 +141,11 @@ def main(argv=None):
     temp_root = os.path.join(project_root, "temp")
     os.makedirs(temp_root, exist_ok=True)
 
+    # If this process dies, for any reason including the console window being
+    # closed, the encoders must die with it rather than run on orphaned.
+    probe.bind_children_to_this_process()
+    probe.sweep_stale_jobs(temp_root)
+
     for path in [args.transcript] + args.audio:
         if not os.path.isfile(path):
             raise SystemExit("File not found: %s" % path)
@@ -156,7 +162,7 @@ def main(argv=None):
     total_audio = probe.total_duration(tools, args.audio)
     timeline = render.build_timeline(starts, images, total_audio, args.fps)
 
-    notify = None if args.quiet else lambda text: print(text)
+    notify = None if args.quiet else (lambda text: print(text, flush=True))
     encoder = probe.detect_encoder(tools, args.encoder, temp_root, notify)
     jobs = choose_jobs(args.jobs, encoder["name"], len(timeline))
     chunks = len(render.chunk_timeline(timeline, jobs, args.chunk_size))
@@ -182,9 +188,12 @@ def main(argv=None):
     progress = make_progress(args.quiet)
 
     if not args.quiet:
-        print("  %d images, %.3fs audio, %s at %dx%d %dfps, %d chunks over %d jobs"
-              % (len(timeline), total_audio, encoder["codec"],
-                 width, height, args.fps, chunks, jobs))
+        total_frames = sum(entry["frames"] for entry in timeline)
+        print("  %d images, %.1fs audio, %s at %dx%d %dfps"
+              % (len(timeline), total_audio, encoder["codec"], width, height, args.fps),
+              flush=True)
+        print("  encoding %d frames in %d chunks over %d parallel jobs"
+              % (total_frames, chunks, jobs), flush=True)
 
     try:
         render.render(tools, options, encoder, timeline, job_dir, jobs, progress)
@@ -202,12 +211,40 @@ def main(argv=None):
     return 0
 
 
+def install_interrupt_handler():
+    """Stop the encoders the moment Ctrl+C is pressed.
+
+    Without this the interrupt is not acted on until the chunk in flight
+    finishes, because the worker threads are blocked reading ffmpeg output.
+    Killing the processes first unblocks them, so the pool shuts down at once.
+    """
+    def handler(signum, frame):
+        render.terminate_active()
+        raise KeyboardInterrupt
+
+    # SIGBREAK is Ctrl+Break on Windows. Without it that key combination skips
+    # Python entirely and the process is torn down by the operating system,
+    # which works but skips the temp cleanup and the cancelled message.
+    names = ["SIGINT", "SIGBREAK", "SIGTERM"]
+    for name in names:
+        received = getattr(signal, name, None)
+        if received is None:
+            continue
+        try:
+            signal.signal(received, handler)
+        except (ValueError, OSError, RuntimeError):
+            pass
+
+
 def run():
+    install_interrupt_handler()
     try:
         sys.exit(main())
     except (transcript.TranscriptError, render.RenderError, probe.ProbeError) as error:
+        render.terminate_active()
         sys.stderr.write("\nerror: %s\n" % error)
         sys.exit(1)
     except KeyboardInterrupt:
+        render.terminate_active()
         sys.stderr.write("\ncancelled\n")
         sys.exit(130)

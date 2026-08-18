@@ -17,6 +17,148 @@ class ProbeError(RuntimeError):
     """Raised when ffmpeg or ffprobe is missing or a probe fails."""
 
 
+# Holding this handle open is what keeps the job object alive. If it is garbage
+# collected the job closes early and takes the encoders with it.
+_JOB_HANDLE = None
+
+
+def bind_children_to_this_process():
+    """Make sure ffmpeg cannot outlive this process. Windows only, best effort.
+
+    Closing a console window kills the Python orchestrator but does not reliably
+    kill the ffmpeg processes it started, which leaves encoders burning CPU on a
+    render whose output will never be assembled. Putting this process in a job
+    object with KILL_ON_JOB_CLOSE makes the operating system terminate every
+    child when this process goes away, however it goes away.
+
+    Returns True if the guard is active.
+    """
+    global _JOB_HANDLE
+    if os.name != "nt" or _JOB_HANDLE is not None:
+        return _JOB_HANDLE is not None
+
+    import ctypes
+    from ctypes import wintypes
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [(name, ctypes.c_ulonglong) for name in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount")]
+
+    class BASIC_LIMIT(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", wintypes.LARGE_INTEGER),
+            ("PerJobUserTimeLimit", wintypes.LARGE_INTEGER),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class EXTENDED_LIMIT(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", BASIC_LIMIT),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+    JobObjectExtendedLimitInformation = 9
+
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # Handles are pointer sized. Without explicit signatures ctypes treats
+        # them as C int and the pseudo handle from GetCurrentProcess overflows.
+        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+        kernel32.SetInformationJobObject.argtypes = [
+            wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+        kernel32.SetInformationJobObject.restype = wintypes.BOOL
+        kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+        kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        kernel32.GetCurrentProcess.argtypes = []
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        job = kernel32.CreateJobObjectW(None, None)
+        if not job:
+            return False
+
+        info = EXTENDED_LIMIT()
+        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if not kernel32.SetInformationJobObject(
+                job, JobObjectExtendedLimitInformation,
+                ctypes.byref(info), ctypes.sizeof(info)):
+            kernel32.CloseHandle(job)
+            return False
+
+        if not kernel32.AssignProcessToJobObject(job, kernel32.GetCurrentProcess()):
+            # Already inside a job that forbids nesting. Nothing to be done.
+            kernel32.CloseHandle(job)
+            return False
+    except (OSError, AttributeError, ValueError):
+        return False
+
+    _JOB_HANDLE = job
+    return True
+
+
+def _process_alive(pid):
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return False
+    kernel32.CloseHandle(handle)
+    return True
+
+
+def sweep_stale_jobs(temp_root):
+    """Delete leftover job folders from runs that were killed part way through.
+
+    A hard kill skips the normal cleanup, so without this the temp folder
+    accumulates part files from every interrupted render. Folders are named
+    job_<pid>, so anything whose process is gone is safe to remove.
+    """
+    removed = 0
+    try:
+        names = os.listdir(temp_root)
+    except OSError:
+        return 0
+    for name in names:
+        if not name.startswith("job_"):
+            continue
+        path = os.path.join(temp_root, name)
+        if not os.path.isdir(path):
+            continue
+        try:
+            pid = int(name[4:])
+        except ValueError:
+            continue
+        if pid == os.getpid() or _process_alive(pid):
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        removed += 1
+    return removed
+
+
 def _run(args, timeout=120):
     return subprocess.run(
         args,

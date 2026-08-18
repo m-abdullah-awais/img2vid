@@ -126,7 +126,27 @@ These were all measured on this machine. Do not undo them without re-measuring.
    measurement is dominated by source generation rather than encoding. An earlier sweep
    was thrown away for this reason. Benchmark against a real image file instead.
 
-6. **Killing a background shell does not kill the ffmpeg it spawned.** A stopped sweep
+6. **ffmpeg children do not reliably die with their Python parent on Windows.**
+   Measured directly: killing the orchestrator left 4 ffmpeg running in one test and
+   killed them in another, so the behaviour was not even consistent. Fixed with a
+   Windows job object using JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, assigned in
+   `probe.bind_children_to_this_process()`. Verified 4 out of 4: ffmpeg 4 -> 0.
+   Two ctypes traps in that code, both already hit and fixed: handles must have
+   explicit argtypes or the GetCurrentProcess pseudo handle overflows, and the job
+   handle must be kept referenced or the job closes early and kills the encoders.
+   A hard kill still skips cleanup, so `probe.sweep_stale_jobs()` deletes leftover
+   `job_<pid>` folders whose process is gone.
+
+   Cancelling also has to set a flag, not just kill the running processes. Killing
+   alone made the thread pool start the next queued chunk, so a cancel took as long
+   as the remaining work.
+
+7. **Progress must come from frame counts, not completed chunks.** Reporting once per
+   finished chunk meant the bar sat at zero for 54 seconds of a 100 second render and
+   then jumped, which reads as a hung program. Each chunk now runs with
+   `-progress pipe:1` and the frame counts are summed across concurrent chunks.
+
+8. **Killing a background shell does not kill the ffmpeg it spawned.** A stopped sweep
    kept running and silently competed with a benchmark, making every number in it too
    slow and useless. Always confirm with `Get-Process ffmpeg, python` afterwards, and
    never trust a benchmark that ran while anything else was encoding.

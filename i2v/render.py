@@ -35,8 +35,13 @@ IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
 # process startup instead. This sits in the flat part of the curve.
 CHUNK_SIZE = 24
 
+# How many chunks to aim for per worker. More than one so the pool can even out
+# uneven chunks instead of stalling on the last one.
+CHUNKS_PER_JOB = 3
+
 _NUM_SPLIT = re.compile(r"(\d+)")
 _PROGRESS_RE = re.compile(r"^out_time_(?:us|ms)=(-?\d+)$")
+_FRAME_RE = re.compile(r"^frame=\s*(\d+)$")
 
 # Pinned so that every chunk converts colour identically, whatever the source
 # image format was. Without this the parts cannot be safely stream copied together.
@@ -52,6 +57,35 @@ _ESCAPED_QUOTE = "'\\''"
 
 class RenderError(RuntimeError):
     """Raised when inputs do not line up or ffmpeg fails."""
+
+
+# Every ffmpeg currently running, so an interrupt can stop them at once instead
+# of waiting for the chunk in flight to finish.
+_ACTIVE = set()
+_ACTIVE_LOCK = threading.Lock()
+
+# Set once the run is being abandoned. Killing the encoders that are already
+# running is not enough on its own: the thread pool would simply start the next
+# queued chunk, so a cancel could take as long as the remaining work. Chunks
+# check this before they launch anything.
+_CANCELLED = threading.Event()
+
+
+def terminate_active():
+    """Cancel the run and kill every running ffmpeg. Safe to call repeatedly."""
+    _CANCELLED.set()
+    with _ACTIVE_LOCK:
+        running = list(_ACTIVE)
+    for process in running:
+        try:
+            process.kill()
+        except OSError:
+            pass
+    return len(running)
+
+
+def cancelled():
+    return _CANCELLED.is_set()
 
 
 # --------------------------------------------------------------------------
@@ -141,11 +175,15 @@ def build_timeline(starts, images, total_audio, fps):
 def chunk_timeline(timeline, jobs, chunk_size=CHUNK_SIZE):
     """Split the timeline into contiguous chunks, one ffmpeg process each.
 
-    Chunks are capped at chunk_size images so the filter graph stays small, and
-    there are at least as many chunks as workers so no core sits idle.
+    Chunks are capped at chunk_size images so the filter graph stays small.
+    Aiming for CHUNKS_PER_JOB chunks per worker rather than exactly one keeps
+    the tail short: with one chunk each, a single slow chunk leaves every other
+    core idle until it finishes, and it also means the progress bar only moves
+    once per worker.
     """
     jobs = max(1, jobs)
-    size = min(chunk_size, max(1, -(-len(timeline) // jobs)))
+    target = max(1, -(-len(timeline) // (jobs * CHUNKS_PER_JOB)))
+    size = min(chunk_size, target)
     return [timeline[start:start + size] for start in range(0, len(timeline), size)]
 
 
@@ -217,8 +255,16 @@ def chunk_filtergraph(entries, options, pix_fmt):
 # ffmpeg execution
 # --------------------------------------------------------------------------
 
-def _run_ffmpeg(args, total_seconds=None, on_progress=None):
-    """Run ffmpeg, optionally reporting progress from the progress pipe."""
+def _run_ffmpeg(args, total_seconds=None, on_progress=None, on_frame=None):
+    """Run ffmpeg, optionally reporting progress from the progress pipe.
+
+    Chunk encoding reports frames with on_frame, because a chunk has no
+    meaningful output duration until it finishes. The mux pass reports elapsed
+    output time instead, via total_seconds and on_progress.
+    """
+    if _CANCELLED.is_set():
+        raise RenderError("cancelled")
+
     process = subprocess.Popen(
         args,
         stdout=subprocess.PIPE,
@@ -228,6 +274,12 @@ def _run_ffmpeg(args, total_seconds=None, on_progress=None):
         errors="replace",
         creationflags=NO_WINDOW,
     )
+    with _ACTIVE_LOCK:
+        _ACTIVE.add(process)
+        if _CANCELLED.is_set():
+            # Cancelled between the check and the spawn.
+            process.kill()
+
     # stderr is drained on its own thread. Reading it only after stdout would
     # let a noisy failure fill the pipe buffer and block ffmpeg indefinitely.
     collected = []
@@ -235,7 +287,12 @@ def _run_ffmpeg(args, total_seconds=None, on_progress=None):
     drain.daemon = True
     drain.start()
 
-    if on_progress and total_seconds:
+    if on_frame:
+        for line in process.stdout:
+            match = _FRAME_RE.match(line.strip())
+            if match:
+                on_frame(int(match.group(1)))
+    elif on_progress and total_seconds:
         for line in process.stdout:
             match = _PROGRESS_RE.match(line.strip())
             if match:
@@ -246,7 +303,11 @@ def _run_ffmpeg(args, total_seconds=None, on_progress=None):
         process.stdout.read()
 
     process.wait()
-    drain.join(timeout=10)
+    with _ACTIVE_LOCK:
+        _ACTIVE.discard(process)
+    # The join is only a safety net against a wedged pipe. When the run is
+    # being abandoned there is no point waiting on it at all.
+    drain.join(timeout=0.1 if _CANCELLED.is_set() else 10)
     stderr = collected[0] if collected else ""
     if process.returncode != 0:
         tail = "\n".join(stderr.strip().splitlines()[-15:])
@@ -254,9 +315,10 @@ def _run_ffmpeg(args, total_seconds=None, on_progress=None):
     return stderr
 
 
-def encode_chunk(tools, options, encoder, entries, output):
+def encode_chunk(tools, options, encoder, entries, output, on_frame=None):
     """Encode one contiguous run of images to an MPEG-TS part."""
-    args = [tools.ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostats"]
+    args = [tools.ffmpeg, "-y", "-hide_banner", "-loglevel", "error", "-nostats",
+            "-progress", "pipe:1"]
     for entry in entries:
         args += ["-framerate", str(options["fps"]), "-i", entry["image"]]
     args += [
@@ -270,7 +332,7 @@ def encode_chunk(tools, options, encoder, entries, output):
         "-g", str(options["fps"] * 10),
         "-an", "-f", "mpegts", output,
     ]
-    _run_ffmpeg(args)
+    _run_ffmpeg(args, on_frame=on_frame)
     return output
 
 
@@ -302,22 +364,34 @@ def render(tools, options, encoder, timeline, job_dir, jobs, on_progress=None):
     chunks = chunk_timeline(timeline, jobs, options["chunk_size"])
     total_seconds = timeline[-1]["end"]
 
+    # Progress is aggregated from the frame counts every chunk reports while it
+    # runs, so the bar moves continuously instead of jumping once per chunk.
+    total_frames = sum(entry["frames"] for entry in timeline)
+    encoded = {}
+    counter_lock = threading.Lock()
+
+    def report(number, frames):
+        if not on_progress:
+            return
+        with counter_lock:
+            encoded[number] = frames
+            done = sum(encoded.values())
+        on_progress(min(0.9, 0.9 * done / total_frames))
+
     def work(pair):
         number, entries = pair
         output = os.path.join(job_dir, "part_%04d.ts" % number)
-        return number, encode_chunk(tools, options, encoder, entries, output)
+        encode_chunk(tools, options, encoder, entries, output,
+                     on_frame=lambda frames: report(number, frames))
+        # Pin the chunk at its true total, in case the last progress line was
+        # missed, so the bar cannot stall just short of the mux.
+        report(number, sum(entry["frames"] for entry in entries))
+        return number, output
 
     parts = []
-    if len(chunks) == 1:
-        parts.append(work((0, chunks[0])))
-        if on_progress:
-            on_progress(0.9)
-    else:
-        with ThreadPoolExecutor(max_workers=min(jobs, len(chunks))) as pool:
-            for result in pool.map(work, enumerate(chunks)):
-                parts.append(result)
-                if on_progress:
-                    on_progress(0.9 * len(parts) / len(chunks))
+    with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(chunks)))) as pool:
+        for result in pool.map(work, enumerate(chunks)):
+            parts.append(result)
 
     parts.sort()
     # Encoding is the first 90 percent of the bar, the mux pass fills the rest.

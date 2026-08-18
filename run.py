@@ -31,6 +31,7 @@ AUDIO = os.path.join(INPUT, "audio")
 OUTPUT = os.path.join(ROOT, "output")
 
 TRANSCRIPT_EXTENSIONS = (".srt", ".vtt", ".txt")
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wma")
 
 
@@ -69,7 +70,7 @@ def discover():
         os.makedirs(folder, exist_ok=True)
 
     transcripts = listing(INPUT, TRANSCRIPT_EXTENSIONS)
-    images = listing(IMAGES, (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"))
+    images = listing(IMAGES, IMAGE_EXTENSIONS)
     # Audio may sit in input\audio, or loose in input alongside the transcript.
     audio = listing(AUDIO, AUDIO_EXTENSIONS) or listing(INPUT, AUDIO_EXTENSIONS)
 
@@ -102,11 +103,12 @@ def run():
     output = os.path.join(OUTPUT, name + ".mp4")
 
     print("  transcript : %s" % os.path.relpath(transcript, ROOT))
-    print("  images     : %s" % os.path.relpath(images, ROOT))
+    print("  images     : %s (%d files)" % (os.path.relpath(images, ROOT),
+                                            len(listing(images, IMAGE_EXTENSIONS))))
     for index, item in enumerate(audio):
         print("  audio %-5s: %s" % (index + 1, os.path.relpath(item, ROOT)))
     print("  output     : %s" % os.path.relpath(output, ROOT))
-    print()
+    print(flush=True)
 
     argv = ["-t", transcript, "-i", images, "-a", *audio, "-o", output]
     return main(argv + sys.argv[1:])
@@ -114,12 +116,17 @@ def run():
 
 if __name__ == "__main__":
     from i2v import probe, render, transcript as transcript_module
+    from i2v.cli import install_interrupt_handler
 
+    install_interrupt_handler()
     try:
         sys.exit(run())
     except (transcript_module.TranscriptError, render.RenderError, probe.ProbeError) as error:
+        # One chunk failing leaves the others still encoding. Stop them.
+        render.terminate_active()
         sys.stderr.write("\nerror: %s\n" % error)
         sys.exit(1)
     except KeyboardInterrupt:
+        render.terminate_active()
         sys.stderr.write("\ncancelled\n")
         sys.exit(130)
