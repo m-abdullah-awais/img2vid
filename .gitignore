@@ -1,6 +1,8 @@
 temp/
 input/
 output/
+runtime/
+bin/
 claude-*.bat
 __pycache__/
 *.pyc

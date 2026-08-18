@@ -21,15 +21,17 @@ rem from a terminal or another script does not block waiting for a key.
 set "HOLD="
 echo %cmdcmdline% | find /i "%~nx0" >nul && set "HOLD=1"
 
-rem Find a Python launcher. "python" first, then the "py" launcher.
+rem Find a Python. The private copy that Setup.bat may have unpacked wins, so a
+rem folder that was set up portably keeps working on a machine with no Python.
 set "PY="
-where python >nul 2>&1 && set "PY=python"
+if exist "runtime\python\python.exe" set "PY=runtime\python\python.exe"
+if not defined PY where python >nul 2>&1 && set "PY=python"
 if not defined PY where py >nul 2>&1 && set "PY=py"
 if not defined PY (
     echo.
     echo   ERROR: Python was not found.
-    echo   Install Python 3.8 or newer and tick "Add Python to PATH", then run this again.
-    echo   Download: https://www.python.org/downloads/
+    echo   Run Setup.bat first. It will use the system Python if there is one,
+    echo   and otherwise unpack a private copy into this folder.
     goto :finish
 )
 
@@ -39,9 +41,8 @@ if not exist "bin\ffmpeg.exe" (
     if errorlevel 1 (
         echo.
         echo   ERROR: ffmpeg was not found.
-        echo   Either add ffmpeg to PATH, or copy ffmpeg.exe and ffprobe.exe
-        echo   into this folder: "%~dp0bin"
-        echo   Download: https://www.gyan.dev/ffmpeg/builds/
+        echo   Run Setup.bat first. It will use the system ffmpeg if there is one,
+        echo   and otherwise unpack a private copy into this folder.
         goto :finish
     )
 )

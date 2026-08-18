@@ -17,7 +17,7 @@ Or just double click **Run.bat** and let it find your files for you.
 ## Contents
 
 - [Why this exists](#why-this-exists)
-- [Requirements](#requirements)
+- [Setup](#setup)
 - [Run.bat, the no arguments way](#runbat-the-no-arguments-way)
 - [Quick start](#quick-start)
 - [Transcript formats](#transcript-formats)
@@ -42,20 +42,55 @@ in one command.
 Accuracy is the point as much as speed. Every image lands on an exact frame boundary,
 and the total video length matches the total audio length to the frame.
 
-## Requirements
+## Setup
 
-- Python 3.8 or newer. The standard library only, no third party packages.
-- ffmpeg and ffprobe on `PATH`, or placed in a `bin` folder next to `img2vid.py`.
+On a new machine, run **Setup.bat** once, then use **Run.bat**. That is the whole
+procedure.
 
-There is nothing to install. No virtual environment, no `pip install`, no
-`node_modules`. Clone or copy the folder and run it.
+Setup checks what the machine already has and fills in only what is missing:
 
-Verify your setup:
+| dependency | if already present | if missing |
+| --- | --- | --- |
+| Python 3.8 or newer | uses the one on `PATH` | unpacks a private copy into `runtime\python` |
+| ffmpeg and ffprobe | uses the ones on `PATH` | unpacks them into `bin` |
+
+**Nothing is installed system wide.** No installer runs, no `PATH` is modified, no
+registry keys are written, and administrator rights are not needed. Anything Setup has
+to fetch lands inside this project folder, so deleting the folder removes every trace.
+
+There are no `pip` packages to install at any point. The tool is Python standard library
+only, which is why a bare embeddable Python is enough.
+
+Options:
 
 ```
-ffmpeg -version
-python img2vid.py --version
+Setup.bat              use what the machine has, fetch only what is missing
+Setup.bat --local      ignore the system copies and fetch both locally, so the
+                       folder is fully self contained and portable
+Setup.bat --check      report what is installed and change nothing
 ```
+
+Setup finishes by rendering a small test video and checking it frame by frame, so it
+only reports success if the machine can genuinely produce a correct video:
+
+```
+     [x] img2vid modules import
+     [x] ffmpeg and ffprobe found  using PATH
+     [x] child process guard available
+     [x] an H.264 encoder works  libx264 selected
+     [x] renders a video end to end
+     [x] frame count is exact  120 frames, expected 120
+     [x] each image is shown for the right number of frames
+```
+
+An internet connection is only needed if something is actually missing. Setup downloads
+roughly 11 MB for Python and roughly 90 MB for ffmpeg, and only for the ones it needs.
+
+### Moving to another machine
+
+Copy the whole folder across and run `Setup.bat` on the new machine. If you want a copy
+that works with no internet on the far side, run `Setup.bat --local` before you move it,
+which brings Python and ffmpeg into the folder itself.
 
 ## Run.bat, the no arguments way
 
@@ -450,6 +485,8 @@ i2v\
   render.py           timeline, filter graphs, chunked encoding and muxing
 input\                created on first run, your source files
 output\               created on first run, finished videos
+runtime\              only if Setup had to fetch Python, a private copy
+bin\                  only if Setup had to fetch ffmpeg
 temp\
   make_fixture.py     fixture generator, small and benchmark sizes
   verify.py           end to end frame accurate verification
@@ -463,9 +500,11 @@ Everything the tool generates, including intermediates and test output, stays in
 
 ## Troubleshooting
 
-**`ffmpeg was not found`**
-Install ffmpeg and put it on `PATH`, or drop `ffmpeg.exe` and `ffprobe.exe` into a
-`bin` folder next to `img2vid.py`. The local copy takes priority.
+**`ffmpeg was not found`** or **`Python was not found`**
+Run `Setup.bat`. It uses whatever the machine already has and fetches only the missing
+piece, into this folder rather than system wide. If the machine has no internet, install
+Python from python.org and put a Windows ffmpeg build's `ffmpeg.exe` and `ffprobe.exe`
+into a `bin` folder next to `img2vid.py`.
 
 **`Count mismatch: N transcript timestamps but M images`**
 There must be exactly one image per transcript line. Check for a stray file in the

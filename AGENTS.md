@@ -77,6 +77,26 @@ Priority is render speed. All heavy work is delegated to ffmpeg. Python only orc
 - Run.bat has a FLAGS line and an interactive prompt on mismatch, because a double click
   gives the user nowhere to type a flag.
 
+## Setup And Portability
+
+- `Setup.bat` installs nothing system wide, per rule 7. System Python and ffmpeg are
+  used when present, otherwise private copies go in `runtime\python` and `bin`.
+- The Python embeddable zip is the right vehicle: about 11 MB, no installer, no admin,
+  no registry, and it carries the full standard library. Verified 3.12.10 runs this
+  project including the ctypes job object, producing a frame exact video.
+  It only works because the project has zero pip dependencies.
+- `Run.bat` prefers `runtime\python\python.exe` when it exists, so a folder set up
+  portably keeps working on a machine with no Python at all.
+- ffmpeg download sources, in the order Setup tries them. gyan.dev was unreachable when
+  this was written, so the GitHub mirror is first:
+  `github.com/GyanD/codexffmpeg` 7.1 essentials, about 88 MB, then gyan.dev, then
+  `github.com/BtbN/FFmpeg-Builds` gpl, about 163 MB. The archives nest the binaries
+  under a version named folder, so `for /r` searches for them rather than assuming.
+- Two batch traps hit while writing it, both fixed: `findstr /c:"import site"` matches
+  the commented out `#import site` line in the embeddable `._pth` file, so `/b` is
+  needed to anchor to the start of a line. And `%~dp0` in a helper script under `temp\`
+  resolves to `temp\`, which silently doubles paths.
+
 ## Findings That Cost Time To Discover
 
 These were all measured on this machine. Do not undo them without re-measuring.
