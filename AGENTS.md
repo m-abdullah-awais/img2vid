@@ -47,7 +47,8 @@ Priority is render speed. All heavy work is delegated to ffmpeg. Python only orc
 ## Environment Facts (verified on this machine, 2026-08-18)
 
 - ffmpeg and ffprobe N-121938 full GPL build, already on PATH. Not installed by this project.
-- `h264_qsv` (Intel Quick Sync) hardware encoder is available and works. This is the fast path.
+- `h264_qsv` (Intel Quick Sync) hardware encoder is available and works, but it is NOT the
+  fast path on this machine. See finding 4: software x264 at ultrafast beats it.
 - `h264_nvenc` fails: `nvcuda.dll` missing. No NVIDIA runtime on this machine.
 - `h264_amf` fails: `amfrt64.dll` missing. No AMD runtime on this machine.
 - `libx264` is the software fallback.
@@ -82,11 +83,18 @@ These were all measured on this machine. Do not undo them without re-measuring.
    Fixed by pinning `format=rgb24` on the way in and
    `scale=out_color_matrix=bt709:out_range=tv` on the way out, for every image.
 
-3. **libx264 already threads across all cores.** Running one encoder process per core is
-   therefore not the big win it looks like. Measured on the 300 image, 10 minute fixture:
-   1 job 152.9s, 8 jobs 119.3s. Real but modest, about 22 percent.
-   Quick Sync is a single fixed function engine and peaks at about 3 concurrent sessions
-   (137.6s at 1 job, 105.6s at 3, 110.7s at 6), which is why `--jobs 0` caps it.
+3. **One encoder process per core is wrong.** libx264 already threads across every core
+   by itself, so eight processes oversubscribe the CPU. Best of 3 runs, 100 images at
+   1080p30 on 8 cores: 1 job 40.3s, 2 jobs 41.3s, **4 jobs 37.2s**, 8 jobs 43.5s. The
+   4 job run also had the lowest spread by far, 2 percent against 8 to 37 percent for
+   the others. `--jobs 0` therefore picks `cores // 2` for software encoding.
+   Quick Sync is a single fixed function engine, so it is capped at 3 instead
+   (1 job 64.0s, 3 jobs 44.7s on the same fixture).
+
+   **Wall clock on this machine is noisy.** Identical configurations measured 25 percent
+   apart across batches. Any performance claim needs best of N repeated runs on an
+   otherwise idle machine, never a single measurement. An earlier round of conclusions
+   was drawn from single runs and had to be thrown out.
 
 4. **The encoder is the wall, not the pipeline.** Measured on a real still PNG through
    the actual filter chain, single process, static 1080p:
@@ -117,3 +125,8 @@ These were all measured on this machine. Do not undo them without re-measuring.
    generates and filters every source frame before the select drops them, so the
    measurement is dominated by source generation rather than encoding. An earlier sweep
    was thrown away for this reason. Benchmark against a real image file instead.
+
+6. **Killing a background shell does not kill the ffmpeg it spawned.** A stopped sweep
+   kept running and silently competed with a benchmark, making every number in it too
+   slow and useless. Always confirm with `Get-Process ffmpeg, python` afterwards, and
+   never trust a benchmark that ran while anything else was encoding.

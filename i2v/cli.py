@@ -20,6 +20,13 @@ DEFAULTS = {
 # more than that just queue up and add scheduling overhead.
 QSV_MAX_JOBS = 3
 
+# libx264 already threads across every core on its own, so running one process
+# per core oversubscribes the CPU and measures slower than running fewer.
+# Best of 3 runs, 100 images at 1080p30 on 8 cores:
+#   1 job 40.3s, 2 jobs 41.3s, 4 jobs 37.2s, 8 jobs 43.5s
+# Half the cores was both the fastest and by far the most consistent.
+CORES_PER_SOFTWARE_JOB = 2
+
 
 def build_parser():
     parser = argparse.ArgumentParser(
@@ -76,10 +83,18 @@ def parse_size(value):
 
 
 def choose_jobs(requested, encoder_name, chunk_count):
+    """Pick how many encoder processes to run at once.
+
+    Neither encoder wants one process per core. See the constants above for the
+    measurements behind each cap.
+    """
+    if requested > 0:
+        return max(1, min(requested, chunk_count))
     cores = os.cpu_count() or 4
-    jobs = requested if requested > 0 else cores
-    if requested <= 0 and encoder_name == "qsv":
-        jobs = min(jobs, QSV_MAX_JOBS)
+    if encoder_name == "qsv":
+        jobs = min(cores, QSV_MAX_JOBS)
+    else:
+        jobs = max(1, cores // CORES_PER_SOFTWARE_JOB)
     return max(1, min(jobs, chunk_count))
 
 

@@ -118,7 +118,7 @@ python img2vid.py -t script.srt -i .\images -a narration.mp3 --dry-run
   5  5.png                              15.267     20.000   4.733      142
   -----------------------------------------------------------------------
   segments: 5   audio: 20.000s   video: 20.000s   frames: 600 @ 30 fps
-  encoder: x264   chunks: 5   jobs: 5
+  encoder: x264   chunks: 3   jobs: 3
 ```
 
 Note the frame counts add up to exactly 600, which is 20 seconds at 30fps. That is the
@@ -268,32 +268,65 @@ together produces a visible brightness jump partway through the video.
 
 ## Performance
 
-Measured on the included 300 image, 10 minute benchmark fixture at 1920x1080 and
-30fps, which is 18000 output frames. Machine: 8 logical cores, Intel Quick Sync
-available, no discrete GPU.
+Machine: 8 logical cores, Intel Quick Sync available, no discrete GPU. Fixture: 100
+images rendered to 200 seconds of 1920x1080, which is 6000 frames. Each configuration
+was run three times and the fastest run is reported, because desktop wall clock is
+noisy enough that a single measurement can be a quarter out.
 
-BENCHMARK_TABLE_PLACEHOLDER
+**How many encoder processes to run.** One process per core is the intuitive answer and
+it is wrong, because libx264 already threads across every core by itself.
+
+| jobs | best | spread over 3 runs | realtime |
+| --- | --- | --- | --- |
+| 1 | 40.3s | 37% | 5.0x |
+| 2 | 41.3s | 6% | 4.8x |
+| **4 (the default, half the cores)** | **37.2s** | **2%** | **5.4x** |
+| 8 | 43.5s | 8% | 4.6x |
+
+Half the cores was both the fastest and by far the steadiest. This is what `--jobs 0`
+now picks for software encoding. Hardware encoding is capped at 3 instead, since Quick
+Sync is a single fixed function engine and extra sessions only queue up.
+
+**Frame rate is the biggest lever you control.**
+
+| configuration | best | realtime | size |
+| --- | --- | --- | --- |
+| default, 30fps | 31.8s | 6.3x | 5.7 MB |
+| default, 15fps | 24.7s | 8.1x | 5.5 MB |
+| default, 10fps | 21.8s | 9.2x | 5.6 MB |
+| forced `--encoder qsv`, 3 jobs | 44.7s | 4.5x | 5.3 MB |
+| forced `--encoder qsv`, 1 job | 64.0s | 3.1x | 5.3 MB |
+
+A still slideshow loses nothing visually at a lower frame rate and YouTube accepts it,
+so `--fps 15` is close to free. Note that halving the frame rate does not halve the
+time: decoding and scaling the images, starting processes and muxing are fixed costs
+that do not care how many frames come out the other end.
+
+In round numbers on this machine, a **10 minute 1080p30 video renders in about 90 to
+110 seconds**, and roughly 70 seconds at 15fps.
 
 Reproduce it yourself:
 
 ```
-python temp/make_fixture.py --big
+python temp/make_fixture.py --medium
 python temp/benchmark.py
+
+python temp/make_fixture.py --big
+python temp/benchmark.py --big --reps 2
 ```
 
 Notes on tuning:
 
-- **Quick Sync is one fixed function engine.** Running many sessions against it does
-  not make it finish sooner, so `--jobs 0` caps hardware encoding at a small number
-  of processes. Software encoding is the case that scales with cores, though libx264
-  already threads internally, so the gain from extra processes is real but modest.
-- **Lowering `--fps` is the single biggest lever.** A still slideshow loses nothing
-  visually at a lower frame rate, and `--fps 10` cuts the frame count by two thirds.
-  YouTube accepts it.
+- **The encoder is the wall, not the orchestration.** Measured ceiling for a single
+  process on static 1080p is 393 fps for x264 ultrafast and 255 fps for Quick Sync.
+  The full pipeline runs close enough to that ceiling that there is no large win left
+  in how the work is arranged.
 - **`--chunk-size` trades process startup against filter graph size.** Each image in
   a chunk costs one decoder, so very large chunks slow the graph down while very
   small ones pay process startup repeatedly. The default sits in the flat part of
   that curve.
+- **Benchmark on a quiet machine.** Anything else encoding at the same time will
+  distort the result badly. This was learned the hard way.
 
 ## Verification
 
