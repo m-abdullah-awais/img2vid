@@ -27,8 +27,8 @@ python img2vid.py -t script.srt -i .\images -a narration.mp3 -o video.mp4
 ## Contents
 
 - [Why this exists](#why-this-exists)
-- [Setup](#setup)
-- [The two step workflow](#the-two-step-workflow)
+- [Installation](#installation)
+- [What Setup.bat installs](#what-setupbat-installs)
 - [Transcribe Audio.bat](#transcribe-audiobat)
 - [Create Video.bat](#create-videobat)
 - [Quick start](#quick-start)
@@ -58,9 +58,153 @@ the whole edit is derived from the narration itself rather than typed out.
 Accuracy is the point as much as speed. Every image lands on an exact frame boundary,
 and the total video length matches the total audio length to the frame.
 
-## Setup
+## Installation
 
-On a new machine, run **Setup.bat** once. That is the whole procedure.
+Written for someone who has never used GitHub or a command prompt. Follow it in order
+and you will have a finished video at the end.
+
+You do **not** need to install Python, ffmpeg, or anything else beforehand. You do not
+need administrator rights. Everything lands inside one folder, and deleting that folder
+removes every trace.
+
+Requirements: Windows 10 or 11, about 1 GB of free disk space, and an internet
+connection for the first setup only.
+
+### Step 1: Get the files
+
+Pick one of the two options below. Option A needs no tools at all.
+
+**Option A: download the ZIP**
+
+1. Open **https://github.com/m-abdullah-awais/img2vid** in your browser.
+2. Click the green **Code** button near the top right.
+3. Click **Download ZIP**. A file called `img2vid-main.zip` lands in your Downloads.
+4. Right click the ZIP file and choose **Properties**. If you see an **Unblock**
+   checkbox at the bottom, tick it and click **OK**. This saves Windows from warning
+   you about every file inside it later.
+5. Right click the ZIP again, choose **Extract All**, then **Extract**.
+6. You now have a folder named `img2vid-main`. Rename it to `img2vid` if you like, and
+   move it somewhere simple such as `C:\Tools\img2vid` or `D:\img2vid`.
+
+**Option B: clone with Git**, if you already have Git installed:
+
+```
+git clone https://github.com/m-abdullah-awais/img2vid.git
+cd img2vid
+```
+
+A note on where you put the folder. Choose a normal local folder. Avoid putting it
+inside OneDrive, Dropbox or Google Drive: those sync every temporary file the tool
+writes while it works, which makes it slower and can lock files mid render.
+
+### Step 2: Run Setup.bat
+
+1. Open the folder. You will see **Setup.bat**, **Transcribe Audio.bat** and
+   **Create Video.bat**.
+2. Double click **Setup.bat**.
+3. If Windows shows a blue box saying *"Windows protected your PC"*, click
+   **More info**, then **Run anyway**. Windows shows this for any script downloaded
+   from the internet. Step 1 point 4 usually prevents it.
+4. A black window opens and reports what it is doing. Leave it alone and let it finish.
+
+The first run downloads up to about 280 MB and takes a few minutes on a normal
+connection. It only downloads what your machine is actually missing, so if you already
+have Python and ffmpeg it will be much quicker.
+
+You are looking for this at the end:
+
+```
+  ============================================================
+  Setup complete. Nothing was installed system wide.
+```
+
+5. Press any key to close the window.
+
+You only ever do this once per machine. If the download is interrupted, just run
+**Setup.bat** again: it picks up where it left off and skips anything already done.
+
+### Step 3: Put your narration in
+
+Setup created an `input` folder for you. Open `input\audio` and copy your narration
+audio into it.
+
+Accepted: `.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, `.wma`.
+
+If your narration is split across several files, put them all in and name them so they
+sort in the right order, for example `part1.mp3`, `part2.mp3`, `part3.mp3`. They are
+joined into one continuous recording.
+
+### Step 4: Run Transcribe Audio.bat
+
+Double click **Transcribe Audio.bat**. It listens to your narration and writes down
+what is said and exactly when, entirely on your computer.
+
+Expect roughly one minute of processing for every eight minutes of audio. A progress
+bar shows how far along it is.
+
+The last line is the one that matters:
+
+```
+  Next: put 86 images in input\images\ then run Create Video.bat
+```
+
+**Write that number down.** It is how many images your video needs, because each line
+of the transcript gets one image.
+
+Already have a transcript of your own? Put it in the `input` folder as `script.srt` and
+skip this step entirely.
+
+### Step 5: Put your images in
+
+Copy exactly that many images into the `input\images` folder.
+
+Accepted: `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.tif`.
+
+**Name them so they sort in order**: `1.jpg`, `2.jpg`, `3.jpg` and so on. Plain numbers
+are safest. The first image is shown for the first line of the transcript, the second
+for the second line, and so on to the end.
+
+If you end up with the wrong number of images, that is fine and recoverable. See
+[When the counts do not match](#when-the-counts-do-not-match).
+
+### Step 6: Run Create Video.bat
+
+Double click **Create Video.bat**. A progress bar runs while it works. A ten minute
+video takes roughly 90 to 110 seconds on an average machine.
+
+```
+  done in 96.4s  ->  output\script.mp4  (78.2 MB, 600.000s, 6.2x realtime)
+```
+
+### Step 7: Watch it
+
+Your finished video is in the `output` folder, named after the transcript. Double click
+to play it.
+
+That is the whole process. Setup is a one time thing, so for every video after this one
+you only repeat steps 3 to 6.
+
+### The short version
+
+Once you have done it once, this is all there is to it:
+
+```
+input\
+  audio\              your narration            <- you provide
+  script.srt          written for you in step 4
+  images\             one image per line        <- you provide
+output\
+  script.mp4          your finished video
+```
+
+| | do this |
+| --- | --- |
+| once per machine | run `Setup.bat` |
+| every video | drop audio in `input\audio\`, run `Transcribe Audio.bat` |
+| | drop that many images in `input\images\`, run `Create Video.bat` |
+| | collect the video from `output\` |
+
+## What Setup.bat installs
 
 Setup checks what the machine already has and fills in only what is missing:
 
@@ -130,25 +274,6 @@ The speech engine is the exception: it must be installed on the machine that wil
 it, because its packages contain compiled extensions built for one CPython version.
 Setup records which interpreter installed them and asks you to run it again if that
 changes, rather than failing later with an import error.
-
-## The two step workflow
-
-```
-input\
-  audio\              one or more audio files          <- you provide
-  script.srt          written by Transcribe Audio.bat
-  images\             one image per transcript line    <- you provide
-output\
-  script.mp4          written by Create Video.bat
-```
-
-1. Put your narration in `input\audio\` and run **Transcribe Audio.bat**. It writes
-   the transcript and tells you how many images the video needs.
-2. Put that many images in `input\images\`, named so they sort in order, and run
-   **Create Video.bat**.
-
-Both batch files create the folders they need on first run and tell you what is
-missing, so running either one with an empty `input\` is a reasonable way to start.
 
 ## Transcribe Audio.bat
 

@@ -254,6 +254,13 @@ if errorlevel 1 (
 rem Free the download cache, the unpacked copies are what matter now.
 if exist "%DL%" rmdir /s /q "%DL%" 2>nul
 
+rem Create the folders the instructions below tell the user to fill in. They are
+rem gitignored, so a fresh clone or a downloaded zip does not contain them, and
+rem being told to open a folder that is not there is a poor first impression.
+if not exist "%~dp0input\audio" mkdir "%~dp0input\audio" 2>nul
+if not exist "%~dp0input\images" mkdir "%~dp0input\images" 2>nul
+if not exist "%~dp0output" mkdir "%~dp0output" 2>nul
+
 echo.
 echo   ============================================================
 echo   Setup complete. Nothing was installed system wide.
