@@ -42,7 +42,9 @@ python img2vid.py -t script.srt -i .\images -a narration.mp3 -o video.mp4
 - [Verification](#verification)
 - [Project layout](#project-layout)
 - [Troubleshooting](#troubleshooting)
-- [Developer](#developer)
+- [Contributing](#contributing)
+- [License](#license)
+- [The developer](#the-developer)
 
 ## Why this exists
 
@@ -983,14 +985,79 @@ speed of each candidate. Delete that file to force a fresh trial, or pass
 `x264` legitimately beats Quick Sync on many machines for this kind of content, so a
 software pick is not necessarily a misdetection.
 
-## Developer
+---
 
-**Muhammad Abdullah Awais**
-Full Stack Developer
+## Contributing
 
-- Website: [www.abdullahawais.com](https://www.abdullahawais.com)
-- Email: [contact@abdullahawais.com](mailto:contact@abdullahawais.com)
-- LinkedIn: [m-abdullah-awais-programmer](https://www.linkedin.com/in/m-abdullah-awais-programmer)
-- GitHub: [m-abdullah-awais](https://github.com/m-abdullah-awais)
-- YouTube: [@m\_abdullah\_awais](https://www.youtube.com/@m\_abdullah\_awais)
-- Instagram: [m\_abdullah\_awais](https://www.instagram.com/m\_abdullah\_awais)
+Issues and pull requests are genuinely welcome. If a transcript comes out wrong, a
+render fails, or Setup cannot get itself going on your machine,
+[open an issue](https://github.com/m-abdullah-awais/img2vid/issues) with what you ran
+and what it printed, and I will take a look.
+
+If you are reporting a timing or quality problem, the output of
+`python img2vid.py ... --dry-run` is the single most useful thing you can paste in.
+
+## License
+
+Released under the [MIT License](LICENSE). Use it, learn from it, build on it.
+
+Nothing third party is redistributed in this repository. ffmpeg and the speech model are
+downloaded by `Setup.bat` at install time and stay in your copy of the folder, so their
+licences are between you and them: ffmpeg builds are GPL, and faster-whisper and the
+Whisper models are MIT.
+
+---
+
+<div align="center">
+
+## The developer
+
+### Muhammad Abdullah Awais
+
+**Full Stack Developer**
+
+I build fast, clean, practical tools that scratch a real itch. img2vid came straight out
+of one of mine. I had the narration, I had the images, and I was still sitting in a video
+editor dragging clips around to line them up by hand. The timing was already sitting in
+the transcript, so the computer should have been doing that work. Now it does, in about a
+minute, and every image lands on an exact frame.
+
+🌐 [www.abdullahawais.com](https://www.abdullahawais.com) &nbsp;&nbsp;|&nbsp;&nbsp; 📧 [contact@abdullahawais.com](mailto:contact@abdullahawais.com)
+
+<p>
+  <a href="https://www.abdullahawais.com"><img src="https://img.shields.io/badge/Website-05A081?style=for-the-badge&logo=google-chrome&logoColor=white" alt="Website" /></a>
+  <a href="https://github.com/m-abdullah-awais"><img src="https://img.shields.io/badge/GitHub-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub" /></a>
+  <a href="https://www.linkedin.com/in/m-abdullah-awais-programmer"><img src="https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" /></a>
+  <a href="https://www.youtube.com/@m_abdullah_awais"><img src="https://img.shields.io/badge/YouTube-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube" /></a>
+  <a href="https://www.instagram.com/m_abdullah_awais"><img src="https://img.shields.io/badge/Instagram-E4405F?style=for-the-badge&logo=instagram&logoColor=white" alt="Instagram" /></a>
+  <a href="mailto:contact@abdullahawais.com"><img src="https://img.shields.io/badge/Email-EA4335?style=for-the-badge&logo=gmail&logoColor=white" alt="Email" /></a>
+</p>
+
+</div>
+
+---
+
+<div align="center">
+
+### Found img2vid useful?
+
+If it saved you an afternoon in a video editor, a star on the repo genuinely helps other
+people find it.
+
+<a href="https://github.com/m-abdullah-awais/img2vid">
+  <img src="https://img.shields.io/github/stars/m-abdullah-awais/img2vid?style=for-the-badge&logo=github&color=05A081&labelColor=181717" alt="Star this repo on GitHub" />
+</a>
+
+<br />
+<br />
+
+<sub>Built with care by <a href="https://www.abdullahawais.com"><b>Muhammad Abdullah Awais</b></a></sub>
+
+<br />
+
+<sub><b>Runs entirely on your machine.</b> Your narration and images are never uploaded
+anywhere, there is no account and no API key, and the speech model runs locally. img2vid
+is an independent tool and is not affiliated with OpenAI, the ffmpeg project, or any
+other party whose work it builds on.</sub>
+
+</div>
