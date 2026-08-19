@@ -1,24 +1,36 @@
 # img2vid
 
-Turn a timestamped transcript, a folder of images and one or more audio files into a
-finished MP4. Each image is held on screen from its own timestamp until the next one,
-and the last image runs until the audio ends.
+Turn narration audio and a folder of images into a finished MP4. Each image is held on
+screen from its own timestamp until the next one, and the last image runs until the
+audio ends.
 
-Built for speed. All heavy lifting is delegated to ffmpeg, work is spread across CPU
-cores, and the fastest encoder your machine has is chosen by timing them rather than
-by guessing.
+Two steps, both offline and both built for speed:
 
 ```
+Transcribe Audio.bat      narration        ->  timestamped transcript
+Create Video.bat          transcript + images + audio  ->  MP4
+```
+
+Transcription runs a local Whisper model on the CPU, so nothing is uploaded and there
+is no API key. Assembly delegates every heavy operation to ffmpeg, spreads the work
+across CPU cores, and picks the fastest encoder your machine has by timing them rather
+than by guessing.
+
+If you already have a transcript, skip step one and run **Create Video.bat**. For full
+control, both steps have a normal command line:
+
+```
+python transcribe.py --max-chars 90
 python img2vid.py -t script.srt -i .\images -a narration.mp3 -o video.mp4
 ```
-
-Or just double click **Run.bat** and let it find your files for you.
 
 ## Contents
 
 - [Why this exists](#why-this-exists)
 - [Setup](#setup)
-- [Run.bat, the no arguments way](#runbat-the-no-arguments-way)
+- [The two step workflow](#the-two-step-workflow)
+- [Transcribe Audio.bat](#transcribe-audiobat)
+- [Create Video.bat](#create-videobat)
 - [Quick start](#quick-start)
 - [Transcript formats](#transcript-formats)
 - [Matching images to timestamps](#matching-images-to-timestamps)
@@ -35,17 +47,20 @@ Or just double click **Run.bat** and let it find your files for you.
 ## Why this exists
 
 Assembling a narrated slideshow by hand in a video editor is slow and repetitive work.
-The transcript already contains the timing, and the images are already in the right
-order, so the edit is fully determined by data you have. This tool does that assembly
-in one command.
+Once you have a transcript, the edit is fully determined: the timing is in the
+transcript and the images are already in the right order. Nothing about it needs a
+human. This tool does that assembly in one command.
+
+Producing the transcript used to be the manual step that remained, which is why the
+speech to text step exists. It runs a Whisper model locally, so the timing that drives
+the whole edit is derived from the narration itself rather than typed out.
 
 Accuracy is the point as much as speed. Every image lands on an exact frame boundary,
 and the total video length matches the total audio length to the frame.
 
 ## Setup
 
-On a new machine, run **Setup.bat** once, then use **Run.bat**. That is the whole
-procedure.
+On a new machine, run **Setup.bat** once. That is the whole procedure.
 
 Setup checks what the machine already has and fills in only what is missing:
 
@@ -53,25 +68,38 @@ Setup checks what the machine already has and fills in only what is missing:
 | --- | --- | --- |
 | Python 3.8 or newer | uses the one on `PATH` | unpacks a private copy into `runtime\python` |
 | ffmpeg and ffprobe | uses the ones on `PATH` | unpacks them into `bin` |
+| speech to text engine | uses the copy in `runtime\whisper` | installs it there, about 140 MB |
+| speech model | uses the copy in `runtime\whisper\models` | downloads `base`, about 140 MB |
 
 **Nothing is installed system wide.** No installer runs, no `PATH` is modified, no
 registry keys are written, and administrator rights are not needed. Anything Setup has
 to fetch lands inside this project folder, so deleting the folder removes every trace.
 
-There are no `pip` packages to install at any point. The tool is Python standard library
-only, which is why a bare embeddable Python is enough.
+The video side has no `pip` packages at all and is Python standard library only, which
+is why a bare embeddable Python is enough to run it. The speech engine is the one
+exception, and it is installed with `pip --target` into `runtime\whisper\lib` rather
+than into a virtual environment or the system `site-packages`. One code path covers
+both a system Python and the embeddable one, which cannot host a virtual environment
+because it ships without `ensurepip`.
 
 Options:
 
 ```
-Setup.bat              use what the machine has, fetch only what is missing
-Setup.bat --local      ignore the system copies and fetch both locally, so the
-                       folder is fully self contained and portable
-Setup.bat --check      report what is installed and change nothing
+Setup.bat                  use what the machine has, fetch only what is missing
+Setup.bat --local          ignore the system copies and fetch Python and ffmpeg
+                           locally, so the folder is fully self contained
+Setup.bat --check          report what is installed and change nothing
+Setup.bat --no-transcribe  skip the speech engine, video assembly only
+Setup.bat --model tiny     pre-download a different model size (see Performance,
+                           the default base is usually the right choice)
 ```
 
-Setup finishes by rendering a small test video and checking it frame by frame, so it
-only reports success if the machine can genuinely produce a correct video:
+If the speech engine cannot be installed, Setup says so and carries on. Video assembly
+is unaffected, and you can supply your own transcript instead.
+
+Setup finishes by rendering a small test video, checking it frame by frame, and
+running a decode through the speech model, so it only reports success if the machine
+can genuinely do the work:
 
 ```
      [x] img2vid modules import
@@ -81,10 +109,16 @@ only reports success if the machine can genuinely produce a correct video:
      [x] renders a video end to end
      [x] frame count is exact  120 frames, expected 120
      [x] each image is shown for the right number of frames
+     [x] speech engine imports
+     [x] a speech model is present  base, from runtime\whisper\models
+     [x] the model loads
+     [x] a decode runs end to end
+     [x] the transcript it writes feeds the renderer  2 cues, second starts at 1.370s
 ```
 
 An internet connection is only needed if something is actually missing. Setup downloads
-roughly 11 MB for Python and roughly 90 MB for ffmpeg, and only for the ones it needs.
+roughly 11 MB for Python, roughly 90 MB for ffmpeg, and roughly 280 MB for the speech
+engine and its model, and only for the ones it needs.
 
 ### Moving to another machine
 
@@ -92,10 +126,94 @@ Copy the whole folder across and run `Setup.bat` on the new machine. If you want
 that works with no internet on the far side, run `Setup.bat --local` before you move it,
 which brings Python and ffmpeg into the folder itself.
 
-## Run.bat, the no arguments way
+The speech engine is the exception: it must be installed on the machine that will run
+it, because its packages contain compiled extensions built for one CPython version.
+Setup records which interpreter installed them and asks you to run it again if that
+changes, rather than failing later with an import error.
 
-Double click **Run.bat**. The first run creates the folders it needs and tells you
-what to put in them:
+## The two step workflow
+
+```
+input\
+  audio\              one or more audio files          <- you provide
+  script.srt          written by Transcribe Audio.bat
+  images\             one image per transcript line    <- you provide
+output\
+  script.mp4          written by Create Video.bat
+```
+
+1. Put your narration in `input\audio\` and run **Transcribe Audio.bat**. It writes
+   the transcript and tells you how many images the video needs.
+2. Put that many images in `input\images\`, named so they sort in order, and run
+   **Create Video.bat**.
+
+Both batch files create the folders they need on first run and tell you what is
+missing, so running either one with an empty `input\` is a reasonable way to start.
+
+## Transcribe Audio.bat
+
+Double click it. It reads everything in `input\audio\` and writes three files that all
+describe the same cues:
+
+| file | what it is for |
+| --- | --- |
+| `input\script.srt` | the transcript Create Video.bat reads |
+| `input\script.txt` | the same thing, readable at a glance |
+| `temp\script.json` | `start`, `end` and `text`, for any other tool |
+
+```
+  transcribe
+  ------------------------------------------------------------
+  audio 1    : input\audio\narration.mp3
+  duration   : 399.4s
+  output     : input\script.srt
+  model      : base (int8, cpu)
+  [##############################] 100.0%   49.6s
+  language   : en
+  done in 49.6s  ->  input\script.srt  (86 cues, 8.1x realtime)
+
+  Next: put 86 images in input\images\ then run Create Video.bat
+```
+
+**One cue becomes one image**, so that final count is the number of images you need.
+It is the number you control with `--max-chars` and `--max-seconds`.
+
+**Several audio files are joined into one continuous transcript** by default, in
+natural filename order, which is exactly how Create Video.bat joins them too. So the
+timestamps line up with the finished video rather than restarting on each file. When
+the folder holds alternative takes rather than consecutive parts, `--pick` offers the
+choice instead:
+
+```
+  Which audio should be transcribed?
+
+    a) all 3 files, joined into one continuous transcript
+    1) take-one.mp3
+    2) take-two.mp3
+    3) take-three.mp3
+
+  Choose a number, or a for all [a]
+```
+
+An existing transcript is never silently destroyed. If `input\script.srt` is already
+there it is copied into `temp\replaced\` first and the run tells you where the copy
+went.
+
+Repeating a transcription of the same audio with the same settings is free: the result
+is cached under `temp\transcribe_cache\`, keyed on the file and the settings. `--fresh`
+ignores the cache.
+
+Flags work the same way as the other batch file, either on the command line or on the
+`FLAGS` line inside it:
+
+```
+Transcribe Audio.bat --model small --max-chars 90
+```
+
+## Create Video.bat
+
+Double click **Create Video.bat**. The first run creates the folders it needs and tells
+you what to put in them:
 
 ```
 input\
@@ -108,14 +226,14 @@ Drop your files in, run it again, and the finished video appears in `output\` na
 after the transcript. Audio files are joined in natural filename order, so
 `part1.mp3`, `part2.mp3`, `part10.mp3` play in the order you would expect.
 
-Run.bat also forwards any flags you give it, so this works too:
+It also forwards any flags you give it, so this works too:
 
 ```
-Run.bat --fps 10
-Run.bat --force
+Create Video.bat --fps 10
+Create Video.bat --force
 ```
 
-If you launch it by double clicking there is nowhere to type a flag, so open Run.bat
+If you launch it by double clicking there is nowhere to type a flag, so open the file
 in a text editor and put what you want on the `FLAGS` line near the top:
 
 ```
@@ -235,6 +353,46 @@ and `--bg` to change the letterbox colour.
 
 ## Command reference
 
+### transcribe.py, the speech to text step
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `-a`, `--audio` | everything in `input\audio` | Audio files to transcribe |
+| `--pick` | off | Choose one file interactively instead of joining them all |
+| `--name` | `script` | Base name for the written files |
+| `--out-dir` | `input` | Where the transcript is written |
+| `--model` | `base` | `tiny`, `base` or `small`, larger is slower and more accurate |
+| `--language` | auto detect | Force a language code such as `en` |
+| `--beam` | `1` | Beam width, `1` is greedy and fastest |
+| `--batch` | `0` | Decode this many speech regions at once, `0` is sequential |
+| `--threads` | `0` | Decoder CPU threads, `0` lets the engine choose |
+| `--compute` | `int8` | Numeric precision, `int8` is fast and light on a CPU |
+| `--words` | off | Also record a timestamp for every word |
+| `--condition` | off | Feed each segment the previous text, slower and can loop |
+| `--max-chars` | `0` | Split cues longer than this many characters, `0` is off |
+| `--max-seconds` | `0` | Split cues longer than this many seconds, `0` is off |
+| `--min-seconds` | `0` | Merge cues shorter than this many seconds, `0` is off |
+| `--fresh` | off | Ignore the cached result for this audio |
+| `--keep-temp` | off | Keep intermediate files in `temp/` |
+| `--quiet` | off | Suppress progress output |
+
+**Controlling how many images you need.** Left alone, the cue boundaries are the ones
+the model chose, which follow natural pauses. `--max-chars` and `--max-seconds` split
+long cues at word boundaries, and `--min-seconds` merges cues too short to hold an
+image. Splitting never loses or reorders a word, and never moves the outer edges of the
+cue it split. On a 399 second narration that yields 86 natural cues:
+
+| setting | cues |
+| --- | --- |
+| none | 86 |
+| `--max-chars 100` | 90 |
+| `--max-chars 90` | 108 |
+| `--max-chars 60` | 143 |
+| `--max-seconds 4` | 143 |
+| `--max-seconds 3` | 179 |
+
+### img2vid.py, the video assembly step
+
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-t`, `--transcript` | required | SRT, VTT, or plain text with leading timestamps |
@@ -254,6 +412,29 @@ and `--bg` to change the letterbox colour.
 | `--quiet` | off | Suppress progress output |
 
 ## How it works
+
+### Speech to text
+
+1. **Gather the audio** from `input\audio\` in natural filename order. Several files
+   are concatenated with the ffmpeg concat filter into one 16 kHz mono track first.
+   The filter is used rather than the demuxer because the inputs can be any mix of
+   formats and sample rates, and joining before decoding is what keeps timestamps
+   continuous across files instead of restarting at zero on each one. 16 kHz mono is
+   what the model resamples to anyway, so the conversion happens once.
+2. **Decode with faster-whisper** on the CPU with `int8` weights, and with voice
+   activity detection filtering out silence so the model is not asked to transcribe it.
+3. **Hold every timestamp inside the audio.** Whisper predicts timestamps and routinely
+   overshoots the true end of the file on the final segment, so times are clamped to the
+   measured duration and any cue left empty or zero length is dropped.
+4. **Reshape the cues** if `--max-chars`, `--max-seconds` or `--min-seconds` was given.
+   Short cues are merged before long ones are split, because the other order would
+   split a cue and immediately merge the pieces back together.
+5. **Write SRT, TXT and JSON.** The SRT is what the assembly step reads back.
+
+The model runs entirely on this machine. No audio leaves it, there is no API key, and
+after the first download no network access is needed.
+
+### Video assembly
 
 1. **Parse the transcript** into a list of start times.
 2. **Probe the audio** with ffprobe, concurrently across files, and sum the durations.
@@ -314,10 +495,95 @@ together produces a visible brightness jump partway through the video.
 
 ## Performance
 
-Machine: 8 logical cores, Intel Quick Sync available, no discrete GPU. Fixture: 100
-images rendered to 200 seconds of 1920x1080, which is 6000 frames. Each configuration
-was run three times and the fastest run is reported, because desktop wall clock is
-noisy enough that a single measurement can be a quarter out.
+Machine for every number below: Intel i7-8650U, 4 cores and 8 threads at 15W, Intel
+Quick Sync available, no discrete GPU. Each configuration was run three times and the
+fastest run is reported, because wall clock on this machine is noisy enough that a
+single measurement can be a quarter out.
+
+### Speech to text speed
+
+Material: a real 399.4 second narration. Default settings are `base`, `int8`,
+greedy decoding, voice activity filtering on.
+
+| phase | seconds |
+| --- | --- |
+| import the engine | 0.9 |
+| load the model | 1.9 |
+| probe the audio | 0.2 |
+| decode 399.4s of audio | 46.5 |
+| **total** | **49.6** |
+
+That is **about 8x realtime**, so roughly a minute of processing for eight minutes of
+narration. Everything except the decode is a fixed cost of about three seconds, so it
+matters on a short clip and disappears on a long one.
+
+**What each setting is worth**, measured one at a time from that baseline:
+
+| change | decode | against baseline | cues | word error rate |
+| --- | --- | --- | --- | --- |
+| **baseline** | **45.7s** | | **86** | **0.9%** |
+| `--beam 5` | 53.0s | 16% slower | 88 | not measured |
+| `--words` | 46.0s | 23% slower | 83 | not measured |
+| `--threads 2` | 44.9s | 20% slower | 86 | not measured |
+| `--threads 8` | 43.4s | 16% slower | 86 | not measured |
+| `--batch 8` | 34.3s | 25% faster | 90 | 4.3% |
+
+Notes on the defaults these produced:
+
+- **Greedy decoding is the default.** A beam of 5, which is what the library does
+  unprompted, costs 16 percent for no visible gain on clear narration.
+- **Word timestamps are off unless something needs them.** They cost 23 percent, and
+  nothing needs them until you ask for cue reshaping, at which point they are switched
+  on automatically.
+- **Thread count is left to the engine.** Pinning it either way measured slower. The
+  engine already picks the physical core count, which is the right answer here.
+- **`--batch 8` is faster but less accurate, so it is not the default.** It is 25
+  percent quicker and much steadier run to run, but word error rate against the
+  reference transcript went from 0.9 percent to 4.3 percent, and the longest cue grew
+  from 7.2 to 10.5 seconds. For a transcript that is both the timing source and the
+  script on screen, that is the wrong trade. Use it when you want a rough transcript
+  quickly.
+
+Accuracy is measured against `input\script.srt`, a transcript of the same audio that
+was not produced by this tool. At the default settings the output differed from it by
+**0.9 percent of words**, 1041 words against 1043.
+
+**Which model to use.** Measured on a 120 second excerpt, so that all three fit in one
+sitting without the throttling described below distorting the comparison:
+
+| model | decode | realtime | word error rate | on disk |
+| --- | --- | --- | --- | --- |
+| `tiny` | 17.1s | 7.0x | 5.5% | 75 MB |
+| **`base` (the default)** | **19.8s** | **6.0x** | **2.7%** | **140 MB** |
+| `small` | 140.6s | 0.9x | 2.7% | 484 MB |
+
+`base` is the default for a reason that only shows up when you measure it. `small` is
+seven times slower here and drops **below realtime**, meaning two minutes of audio take
+longer than two minutes to transcribe, and on this material it was **no more accurate
+than `base`**. `tiny` saves a little time for twice the errors. Unless you have
+difficult audio and time to spare, leave it alone.
+
+These excerpt error rates read higher than the 0.9 percent above because the cut at 120
+seconds slices a sentence in half. The full file figure is the fair one.
+
+**One caveat specific to thin laptops.** This CPU has a 15W budget, and sustained
+decoding is exactly the AVX heavy work that exhausts it. A single run on an idle
+machine takes the 50 seconds above, but four back to back runs of the same file did
+not finish inside ten minutes. If you are transcribing a batch, expect the later ones
+to take two to three times longer than the first. A desktop with real cooling does not
+behave this way.
+
+Reproduce it yourself:
+
+```
+python temp/benchmark_transcribe.py                    sweep, single runs
+python temp/benchmark_transcribe.py --repeat 3         best of 3
+python temp/benchmark_transcribe.py --only batch beam  one group at a time
+```
+
+### Video assembly speed
+
+Fixture: 100 images rendered to 200 seconds of 1920x1080, which is 6000 frames.
 
 **How many encoder processes to run.** One process per core is the intuitive answer and
 it is wrong, because libx264 already threads across every core by itself.
@@ -387,7 +653,7 @@ When you would rather have the video anyway, pass `--force`:
 python img2vid.py -t script.srt -i .\images -a narration.mp3 --force
 ```
 
-Run.bat will also offer it. If the counts do not match it prints the problem and asks
+Create Video.bat will also offer it. If the counts do not match it prints the problem and asks
 whether to continue, so a double click can recover without editing anything.
 
 `--force` repairs four things, and says what it did each time:
@@ -472,31 +738,70 @@ frame, so the checks are exhaustive rather than sampled:
 5. Serial and chunked runs, on both the hardware and the software encoder, agree
    exactly.
 
+The speech step has its own harness:
+
+```
+python temp/verify_transcribe.py
+```
+
+It runs against whatever is in `input\audio\`, writes only into `temp\`, and checks:
+
+1. Cues are ordered, do not overlap, and every timestamp lies inside the audio.
+2. The emitted SRT parses back through the same reader the renderer uses, to the same
+   start times to the millisecond. That is the contract between the two steps, so it is
+   asserted rather than assumed.
+3. Word error rate and timestamp drift against `input\script.srt` when one is present.
+   These are reported as measurements, not asserted against a threshold, because a hand
+   made reference is not ground truth in the strict sense.
+4. Reshaping honours its limits, and the text is unchanged when the pieces are joined
+   back together, so a split cannot lose or reorder a word.
+5. Two audio files produce one continuous timeline, with the second file offset rather
+   than restarted.
+6. The transcript is accepted by the renderer and the frame counts add up to the audio.
+7. With the engine folder renamed away, the failure is a message naming `Setup.bat`
+   rather than a traceback.
+
 ## Project layout
 
 ```
-Run.bat               double click launcher, finds files in input\
-run.py                zero argument launcher that Run.bat calls
-img2vid.py            CLI entry point
+Setup.bat             one time provisioning, nothing system wide
+Transcribe Audio.bat  step 1, audio -> transcript
+Create Video.bat      step 2, transcript + images + audio -> MP4
+
+transcribe.py         zero argument launcher that Transcribe Audio.bat calls
+run.py                zero argument launcher that Create Video.bat calls
+img2vid.py            CLI entry point for the assembly step
+setup_check.py        end to end proof that a fresh setup works
+setup_speech.py       records the interpreter and fetches the speech model
 i2v\
   cli.py              argument parsing, orchestration, progress output
+  captions.py         cue type, SRT/VTT/TXT/JSON writers, cue re-splitting
+  speech.py           faster-whisper wrapper, the only third party touch point
   transcript.py       SRT, WebVTT and plain timestamp parsing
   probe.py            ffprobe helpers, encoder detection with an on disk cache
   render.py           timeline, filter graphs, chunked encoding and muxing
 input\                created on first run, your source files
 output\               created on first run, finished videos
-runtime\              only if Setup had to fetch Python, a private copy
+runtime\
+  python\             only if Setup had to fetch Python, a private copy
+  whisper\lib\        the speech engine, installed with pip --target
+  whisper\models\     the speech model weights
 bin\                  only if Setup had to fetch ffmpeg
 temp\
   make_fixture.py     fixture generator, small and benchmark sizes
-  verify.py           end to end frame accurate verification
-  benchmark.py        performance measurement
+  verify.py           end to end frame accurate verification of the video step
+  verify_transcribe.py  end to end verification of the speech step
+  benchmark.py        render performance measurement
+  benchmark_transcribe.py  speech performance measurement
+  transcribe_cache\   past transcriptions, keyed on the audio and the settings
+  replaced\           transcripts that were overwritten, kept just in case
 AGENTS.md             project memory and rules
 README.md             this file
 ```
 
 Everything the tool generates, including intermediates and test output, stays inside
 `temp/`. Intermediates are cleaned up after each run unless `--keep-temp` is given.
+`runtime\` and `bin\` only exist if Setup had to fetch something into them.
 
 ## Troubleshooting
 
@@ -506,10 +811,37 @@ piece, into this folder rather than system wide. If the machine has no internet,
 Python from python.org and put a Windows ffmpeg build's `ffmpeg.exe` and `ffprobe.exe`
 into a `bin` folder next to `img2vid.py`.
 
+**`the speech engine is not installed`**
+Run `Setup.bat`. It installs the engine into `runtime\whisper\lib` inside this folder.
+If you only want to assemble video from a transcript you already have, this does not
+affect you: `Create Video.bat` never touches the speech engine.
+
+**`The speech engine was installed for Python 3.12 but this is Python 3.14`**
+The engine contains compiled extensions built for one CPython version. This happens
+after installing or removing a system Python, or after copying the folder from another
+machine. Run `Setup.bat` again and it reinstalls them for the interpreter now in use.
+
+**`No speech was found in <file>`**
+The voice activity detector found nothing to transcribe. Check that the file really is
+narration rather than music, silence or a corrupt download, and that it plays.
+
+**Transcription is slower than you expected**
+The first run of a session pays for loading the model, which is a fixed cost of a few
+seconds regardless of the length of the audio, so it dominates a short clip and
+disappears on a long one. Beyond that, `--model tiny` is the fastest and
+`--model small` the most accurate. See [Performance](#performance) for measured
+numbers on this machine.
+
+**The transcript has too few or too many lines for the images you want**
+The cue boundaries follow natural pauses, which will not match a fixed image count.
+Use `--max-chars` to split long lines and `--min-seconds` to merge short ones. The
+table in the [Command reference](#command-reference) shows the counts each setting
+produced on a real 399 second narration.
+
 **`Count mismatch: N transcript timestamps but M images`**
 There must be exactly one image per transcript line. Check for a stray file in the
 images folder, or a blank line that was parsed as a cue. Pass `--force` to build the
-video anyway, or put `--force` on the `FLAGS` line in Run.bat.
+video anyway, or put `--force` on the `FLAGS` line in Create Video.bat.
 
 **`The audio is Xs long but the last transcript timestamp is at Ys`**
 The audio has to run past the final timestamp, since the last image is held until the

@@ -22,6 +22,7 @@ Any extra arguments are passed through, so this still works:
 """
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -164,17 +165,25 @@ def join_audio(tools, paths, destination):
 
 
 def stash(path):
-    """Move an existing file aside before it is overwritten, and say where.
+    """Copy an existing file aside before it is overwritten, and say where.
 
     A transcript can represent a lot of manual correction, so it is never simply
-    replaced.
+    replaced. Anything already under temp/ is a byproduct of a previous run and
+    is left alone, otherwise every run would archive its own output.
     """
     if not os.path.isfile(path):
         return None
+    if os.path.abspath(path).startswith(os.path.abspath(TEMP) + os.sep):
+        return None
     os.makedirs(REPLACED, exist_ok=True)
     stem, extension = os.path.splitext(os.path.basename(path))
-    backup = os.path.join(REPLACED, "%s.%s%s"
-                          % (stem, time.strftime("%Y%m%d-%H%M%S", time.gmtime()), extension))
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    backup = os.path.join(REPLACED, "%s.%s%s" % (stem, stamp, extension))
+    # Two runs in the same second would otherwise overwrite the first backup.
+    counter = 2
+    while os.path.exists(backup):
+        backup = os.path.join(REPLACED, "%s.%s-%d%s" % (stem, stamp, counter, extension))
+        counter += 1
     shutil.copy2(path, backup)
     return backup
 
@@ -182,7 +191,6 @@ def stash(path):
 def load_cached(path):
     try:
         with open(path, "r", encoding="utf-8") as handle:
-            import json  # noqa: PLC0415
             return json.load(handle)
     except (OSError, ValueError):
         return None

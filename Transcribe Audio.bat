@@ -15,13 +15,17 @@ rem  reports is the number of images you need.
 rem
 rem  Options. Put any flags you always want between the quotes below.
 rem
-rem    --model small      more accurate, slower  (tiny, base, small)
-rem    --language en      skip language detection, slightly faster
 rem    --max-chars 90     split long lines, so you get more, shorter images
 rem    --min-seconds 2    merge very short lines
+rem    --pick             choose one audio file instead of joining them all
+rem    --language en      skip language detection, slightly faster
 rem    --fresh            ignore the cached result and transcribe again
+rem    --batch 8          about 25 percent faster, but measurably less accurate
+rem    --model small      bigger model. Measured on this machine it was seven
+rem                       times slower than the default and no more accurate,
+rem                       so try it only if the default struggles with your audio
 rem
-rem  Example:  set "FLAGS=--model small --max-chars 90"
+rem  Example:  set "FLAGS=--max-chars 90"
 rem ==========================================================================
 set "FLAGS="
 

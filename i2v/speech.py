@@ -26,6 +26,10 @@ DEFAULT_MODEL = "base"
 
 REPO = "Systran/faster-whisper-%s"
 
+# The one file that proves a download finished. Everything else is small metadata
+# that lands long before the weights do.
+WEIGHTS = "model.bin"
+
 # Written by Setup.bat next to the installed packages. Extension modules are
 # built for one CPython version, so a changed interpreter has to be caught here
 # and reported, rather than surfacing as a bare ImportError later on.
@@ -54,9 +58,25 @@ def python_tag():
 
 
 def model_is_local(project_root, model):
-    """True when the weights are already on disk, so no network call is needed."""
-    folder = "models--" + REPO.replace("/", "--") % model
-    return os.path.isdir(os.path.join(models_dir(project_root), folder))
+    """True when the weights are really on disk, so no network call is needed.
+
+    The presence of the folder is not enough to go on. An interrupted download
+    leaves the folder, the metadata and a part file behind, with no model.bin.
+    Treating that as complete is worse than not caching at all: the download is
+    never resumed, and every later run fails offline with an incomplete snapshot
+    instead of simply finishing the job.
+    """
+    folder = os.path.join(models_dir(project_root),
+                          "models--" + REPO.replace("/", "--") % model)
+    snapshots = os.path.join(folder, "snapshots")
+    if not os.path.isdir(snapshots):
+        return False
+    for name in os.listdir(snapshots):
+        weights = os.path.join(snapshots, name, WEIGHTS)
+        # isfile follows symlinks, so a dangling link counts as missing.
+        if os.path.isfile(weights) and os.path.getsize(weights) > 0:
+            return True
+    return False
 
 
 def activate(project_root):
@@ -205,6 +225,12 @@ def transcribe(project_root, audio, duration=None, model=DEFAULT_MODEL, language
             raise SpeechError("Batched decoding is not available in this build: %s" % error)
         runner = BatchedInferencePipeline(model=engine)
         settings["batch_size"] = batch_size
+        # The batched pipeline defaults to without_timestamps=True, which makes
+        # it emit one cue per speech region the voice detector found. Measured
+        # on a 399s narration that is 15 cues instead of 86, which would mean
+        # one image every 26 seconds. Sentence level cues are the whole point
+        # here, so the timestamps have to be asked for explicitly.
+        settings["without_timestamps"] = False
     else:
         runner = engine
 
@@ -233,8 +259,7 @@ def transcribe(project_root, audio, duration=None, model=DEFAULT_MODEL, language
             cues.append({"start": segment.start, "end": segment.end,
                          "text": segment.text or "", "words": words})
     except Exception as error:  # noqa: BLE001
-        if isinstance(error, KeyboardInterrupt):
-            raise
+        # KeyboardInterrupt is not an Exception, so a cancel still propagates.
         raise SpeechError("Transcription failed part way through: %s" % error)
 
     cues = captions.clamp(cues, duration)

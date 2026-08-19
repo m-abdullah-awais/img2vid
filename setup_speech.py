@@ -50,6 +50,15 @@ def main(argv):
     except speech.SpeechError as error:
         print("   %s" % error)
         return 1
+
+    # Check rather than trust. A download that is cut off part way still leaves
+    # the folder and the metadata behind, and reporting that as success means
+    # every later run fails offline instead of resuming.
+    if not speech.model_is_local(ROOT, model):
+        print("   the %s download did not finish, %s is still missing"
+              % (model, speech.WEIGHTS))
+        print("   run Setup.bat again, it picks up where this left off")
+        return 1
     return 0
 
 

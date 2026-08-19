@@ -156,8 +156,10 @@ def check_speech(tools):
         return
     check("speech engine imports", True)
 
+    # Report the model a normal run would actually pick, not merely the first
+    # one that happens to be on disk.
     model = None
-    for size in speech.MODEL_SIZES:
+    for size in (speech.DEFAULT_MODEL,) + tuple(speech.MODEL_SIZES):
         if speech.model_is_local(ROOT, size):
             model = size
             break
