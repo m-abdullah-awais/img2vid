@@ -32,17 +32,11 @@ def check(label, ok, detail=""):
         _failures.append(label)
 
 
-def clock(seconds):
-    whole = int(seconds)
-    return "%02d:%02d:%02d,%03d" % (whole // 3600, (whole % 3600) // 60, whole % 60,
-                                    int(round((seconds - whole) * 1000)))
-
-
 def main():
     print("     python      %s" % sys.version.split()[0])
 
     try:
-        from i2v import probe, render, transcript
+        from i2v import captions, probe, render, transcript
     except ImportError as error:
         check("img2vid modules import", False, str(error))
         return 1
@@ -82,11 +76,8 @@ def main():
         return 1
     check("ffmpeg can generate media", True)
 
-    ends = STARTS[1:] + [TOTAL]
     with open(os.path.join(WORK, "script.srt"), "w", encoding="utf-8", newline="\n") as handle:
-        handle.write("\n".join(
-            "%d\n%s --> %s\nLine %d\n" % (i + 1, clock(a), clock(b), i + 1)
-            for i, (a, b) in enumerate(zip(STARTS, ends))))
+        handle.write(captions.srt_from_starts(STARTS, TOTAL))
 
     encoder = probe.detect_encoder(tools, "auto", os.path.join(ROOT, "temp"))
     check("an H.264 encoder works", True, "%s selected" % encoder["codec"])
