@@ -3,16 +3,25 @@ setlocal
 cd /d "%~dp0"
 
 rem ==========================================================================
+rem  Step 1 of 2.  Audio  ->  timestamped transcript.
+rem
+rem  Put your narration in input\audio\ and run this. It writes:
+rem
+rem    input\script.srt      the transcript Create Video.bat reads
+rem    input\script.txt      the same thing, readable at a glance
+rem
+rem  One line of transcript becomes one image, so the number of lines it
+rem  reports is the number of images you need.
+rem
 rem  Options. Put any flags you always want between the quotes below.
 rem
-rem    --force        build the video even when the number of images does not
-rem                   match the number of transcript lines
-rem    --fps 15       lower frame rate, renders faster, fine for a slideshow
-rem    --fit cover    fill the frame and crop, instead of letterboxing
+rem    --model small      more accurate, slower  (tiny, base, small)
+rem    --language en      skip language detection, slightly faster
+rem    --max-chars 90     split long lines, so you get more, shorter images
+rem    --min-seconds 2    merge very short lines
+rem    --fresh            ignore the cached result and transcribe again
 rem
-rem  Example:  set "FLAGS=--force --fps 15"
-rem
-rem  You can also leave this empty and answer the prompt when it appears.
+rem  Example:  set "FLAGS=--model small --max-chars 90"
 rem ==========================================================================
 set "FLAGS="
 
@@ -47,7 +56,16 @@ if not exist "bin\ffmpeg.exe" (
     )
 )
 
-%PY% run.py %FLAGS% %*
+rem The speech engine is a separate download, so say so plainly rather than
+rem letting the import fail deeper in.
+if not exist "runtime\whisper\lib" (
+    echo.
+    echo   ERROR: the speech engine is not installed.
+    echo   Run Setup.bat. It installs it inside this folder, nothing system wide.
+    goto :finish
+)
+
+%PY% transcribe.py %FLAGS% %*
 set "CODE=%ERRORLEVEL%"
 
 rem 2 means the input folder still needs filling in, which is not a failure.

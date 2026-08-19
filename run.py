@@ -1,7 +1,7 @@
 r"""Zero argument launcher for img2vid.
 
 Discovers everything from the `input` folder and renders, so there is nothing
-to type. This is what Run.bat calls.
+to type. This is what Create Video.bat calls.
 
     input\
       script.srt          the transcript, any of .srt .vtt .txt
@@ -69,14 +69,21 @@ def discover():
     for folder in (INPUT, IMAGES, AUDIO, OUTPUT):
         os.makedirs(folder, exist_ok=True)
 
-    transcripts = listing(INPUT, TRANSCRIPT_EXTENSIONS)
+    # After transcribing there is a readable .txt sitting next to the .srt, so
+    # take the formats in preference order rather than whichever sorts first.
+    transcripts = []
+    for extension in TRANSCRIPT_EXTENSIONS:
+        transcripts = listing(INPUT, (extension,))
+        if transcripts:
+            break
     images = listing(IMAGES, IMAGE_EXTENSIONS)
     # Audio may sit in input\audio, or loose in input alongside the transcript.
     audio = listing(AUDIO, AUDIO_EXTENSIONS) or listing(INPUT, AUDIO_EXTENSIONS)
 
     missing = []
     if not transcripts:
-        missing.append("a transcript in input\\  (.srt, .vtt or .txt)")
+        missing.append("a transcript in input\\  (.srt, .vtt or .txt)"
+                       "  -> run Transcribe Audio.bat to make one")
     if not images:
         missing.append("images in input\\images\\")
     if not audio:

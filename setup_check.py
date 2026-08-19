@@ -129,6 +129,8 @@ def main():
           [n for _, n in runs] == wanted,
           "got %s, expected %s" % ([n for _, n in runs], wanted))
 
+    check_speech(tools)
+
     shutil.rmtree(WORK, ignore_errors=True)
 
     if _failures:
@@ -136,6 +138,65 @@ def main():
         print("     %d check(s) failed." % len(_failures))
         return 1
     return 0
+
+
+def check_speech(tools):
+    """Prove the speech step works, if it was installed.
+
+    Skipped rather than failed when it is absent, because Setup.bat is allowed
+    to leave it out and video assembly does not need it.
+    """
+    from i2v import captions, probe, speech, transcript  # noqa: PLC0415
+
+    if not os.path.isdir(speech.lib_dir(ROOT)):
+        print("     [ ] speech to text not installed, skipped")
+        return
+    if not speech.available(ROOT):
+        check("speech engine imports", False, "run Setup.bat again to repair it")
+        return
+    check("speech engine imports", True)
+
+    model = None
+    for size in speech.MODEL_SIZES:
+        if speech.model_is_local(ROOT, size):
+            model = size
+            break
+    if model is None:
+        check("a speech model is present", False, "run Setup.bat to download one")
+        return
+    check("a speech model is present", True, "%s, from runtime\\whisper\\models" % model)
+
+    try:
+        engine = speech.load(ROOT, model)
+    except speech.SpeechError as error:
+        check("the model loads", False, str(error).splitlines()[0])
+        return
+    check("the model loads", True)
+
+    # A generated tone carries no speech, so the useful assertion is that a
+    # decode runs to completion rather than that it finds words.
+    tone = os.path.join(WORK, "tone.wav")
+    subprocess.run([
+        tools.ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "sine=frequency=300:sample_rate=16000:duration=2",
+        "-ac", "1", tone,
+    ], check=False, creationflags=probe.NO_WINDOW)
+    try:
+        segments, _ = engine.transcribe(tone, language="en", beam_size=1, vad_filter=True)
+        list(segments)
+        check("a decode runs end to end", True)
+    except Exception as error:  # noqa: BLE001
+        check("a decode runs end to end", False, str(error)[:80])
+        return
+
+    # The transcript the speech step writes has to be readable by the renderer.
+    cues = [captions.make(0.0, 1.37, "first line"), captions.make(1.37, 2.9, "second line")]
+    path = os.path.join(WORK, "cues.srt")
+    captions.write(path, cues, "srt")
+    parsed = transcript.parse(path)
+    check("the transcript it writes feeds the renderer",
+          len(parsed) == 2 and abs(parsed[1][0] - 1.37) < 0.001,
+          "%d cues, second starts at %.3fs" % (len(parsed), parsed[1][0] if parsed else -1))
 
 
 if __name__ == "__main__":

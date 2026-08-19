@@ -14,11 +14,15 @@ rem    Python  : uses the system one if there is a suitable version on PATH,
 rem              otherwise unpacks a private copy into .\runtime\python
 rem    ffmpeg  : uses the system one if ffmpeg and ffprobe are on PATH,
 rem              otherwise unpacks ffmpeg.exe and ffprobe.exe into .\bin
+rem    speech  : installs the offline speech to text engine and its model
+rem              into .\runtime\whisper, for Transcribe Audio.bat
 rem
 rem  Options:
 rem    Setup.bat --local        ignore anything already on PATH, fetch both
 rem                             locally, for a fully self contained folder
 rem    Setup.bat --check        report what is installed and change nothing
+rem    Setup.bat --no-transcribe  skip the speech engine, video assembly only
+rem    Setup.bat --model small    pre-download a different size (tiny, base, small)
 rem ==========================================================================
 
 set "PYTHON_VERSION=3.12.10"
@@ -26,13 +30,24 @@ set "RUNTIME=%~dp0runtime"
 set "PYDIR=%RUNTIME%\python"
 set "BINDIR=%~dp0bin"
 set "DL=%RUNTIME%\download"
+set "WHISPERLIB=%RUNTIME%\whisper\lib"
 
 set "LOCAL_ONLY="
 set "CHECK_ONLY="
-for %%A in (%*) do (
-    if /i "%%~A"=="--local" set "LOCAL_ONLY=1"
-    if /i "%%~A"=="--check" set "CHECK_ONLY=1"
+set "NO_SPEECH="
+set "SPEECH_MODEL=base"
+:parse_args
+if "%~1"=="" goto :parsed
+if /i "%~1"=="--local" set "LOCAL_ONLY=1"
+if /i "%~1"=="--check" set "CHECK_ONLY=1"
+if /i "%~1"=="--no-transcribe" set "NO_SPEECH=1"
+if /i "%~1"=="--model" (
+    set "SPEECH_MODEL=%~2"
+    shift
 )
+shift
+goto :parse_args
+:parsed
 
 rem Pause at the end only when double clicked.
 set "HOLD="
@@ -165,6 +180,59 @@ set "FFSOURCE=downloaded into bin"
 echo   [x] ffmpeg      %FFSOURCE%
 
 rem --------------------------------------------------------------------------
+rem  Speech to text engine
+rem
+rem  Installed with pip --target rather than into a virtual environment. That is
+rem  one code path for both the system Python and the embeddable one, which
+rem  cannot host a normal venv because it ships without ensurepip.
+rem --------------------------------------------------------------------------
+:speech
+if defined NO_SPEECH (
+    echo   [ ] speech      skipped, --no-transcribe was given
+    goto :report
+)
+
+if defined CHECK_ONLY (
+    if exist "%WHISPERLIB%\faster_whisper" (
+        echo   [x] speech      installed in runtime\whisper\lib
+    ) else (
+        echo   [ ] speech      not found, would install locally
+    )
+    goto :report
+)
+
+rem pip is what installs it, and the embeddable Python ships without pip.
+"%PY%" -m pip --version >nul 2>&1
+if not errorlevel 1 goto :speech_pip_ready
+echo   [.] pip         not present, bootstrapping it into this folder only
+call :fetch "https://bootstrap.pypa.io/get-pip.py" "%DL%\get-pip.py"
+if errorlevel 1 goto :speech_failed
+"%PY%" "%DL%\get-pip.py" --no-warn-script-location >nul 2>&1
+"%PY%" -m pip --version >nul 2>&1
+if errorlevel 1 goto :speech_failed
+
+:speech_pip_ready
+if exist "%WHISPERLIB%\faster_whisper" (
+    echo   [x] speech      already installed in runtime\whisper\lib
+) else (
+    echo   [.] speech      installing the offline speech engine, around 140 MB
+    "%PY%" -m pip install --no-warn-script-location --disable-pip-version-check --target "%WHISPERLIB%" faster-whisper
+    if errorlevel 1 goto :speech_failed
+    echo   [x] speech      installed into runtime\whisper\lib
+)
+
+echo   [.] model       checking for the %SPEECH_MODEL% model, downloaded once
+"%PY%" setup_speech.py %SPEECH_MODEL%
+if errorlevel 1 goto :speech_failed
+echo   [x] model       %SPEECH_MODEL%, in runtime\whisper\models
+goto :report
+
+:speech_failed
+echo   [!] speech      could not be installed, so Transcribe Audio.bat will not
+echo                   run yet. Everything else works. Run Setup.bat again when
+echo                   the connection is better, or use --no-transcribe.
+
+rem --------------------------------------------------------------------------
 rem  Verify
 rem --------------------------------------------------------------------------
 :report
@@ -191,11 +259,14 @@ echo   ============================================================
 echo   Setup complete. Nothing was installed system wide.
 echo.
 echo   Next:
-echo     1. put your files in the input folder
-echo          input\script.srt      your timestamped transcript
-echo          input\images\         one image per transcript line
-echo          input\audio\          one or more audio files
-echo     2. run Run.bat
+echo     1. put your narration in  input\audio\
+echo     2. run Transcribe Audio.bat
+echo          writes input\script.srt and tells you how many images you need
+echo     3. put that many images in  input\images\  named 1, 2, 3 ...
+echo     4. run Create Video.bat
+echo          the finished video appears in  output\
+echo.
+echo   Already have a transcript? Put it in input\ and skip step 2.
 echo   ============================================================
 set "CODE=0"
 goto :finish
