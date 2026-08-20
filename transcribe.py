@@ -33,7 +33,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
 from i2v import captions, cli, probe, speech  # noqa: E402
-from run import AUDIO, AUDIO_EXTENSIONS, INPUT, _can_prompt, listing  # noqa: E402
+from run import AUDIO, AUDIO_EXTENSIONS, IMAGES, INPUT, OUTPUT, _can_prompt, listing  # noqa: E402
 
 TEMP = os.path.join(ROOT, "temp")
 CACHE = os.path.join(TEMP, "transcribe_cache")
@@ -106,7 +106,11 @@ def explain_setup():
 
 def discover():
     """Audio files in natural order, from input\\audio or loose in input."""
-    for folder in (INPUT, AUDIO, TEMP):
+    # input\images and output are made here too, even though this step writes to
+    # neither, because the count this run reports is the number of images the
+    # user then has to drop into input\images. Being sent to a folder that does
+    # not exist is the point at which people assume the tool is broken.
+    for folder in (INPUT, AUDIO, IMAGES, OUTPUT, TEMP):
         os.makedirs(folder, exist_ok=True)
     return listing(AUDIO, AUDIO_EXTENSIONS) or listing(INPUT, AUDIO_EXTENSIONS)
 

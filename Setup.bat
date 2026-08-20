@@ -10,6 +10,8 @@ rem
 rem  Nothing is installed system wide. Anything this script has to fetch goes
 rem  inside this project folder and is removed if you delete the folder.
 rem
+rem    folders : creates input\audio, input\images and output, the folders you
+rem              put your files in. This happens first, before anything else.
 rem    Python  : uses the system one if there is a suitable version on PATH,
 rem              otherwise unpacks a private copy into .\runtime\python
 rem    ffmpeg  : uses the system one if ffmpeg and ffprobe are on PATH,
@@ -57,6 +59,47 @@ echo.
 echo   img2vid setup
 echo   ============================================================
 echo.
+
+rem --------------------------------------------------------------------------
+rem  Folders
+rem
+rem  First, before anything that can fail or needs a network. input\ and output\
+rem  are gitignored, and git cannot carry an empty folder in any case, so a fresh
+rem  clone or a downloaded zip arrives without them and every instruction below
+rem  points at a folder that is not there. Creating them at the end instead meant
+rem  that a setup stopping early for an unrelated reason, a download that timed
+rem  out or a failed self check, left the user with nowhere to put their files.
+rem --------------------------------------------------------------------------
+
+rem Explorer will run a batch file straight out of a zip by unpacking it to a
+rem temporary folder, and everything created there is discarded on the way out.
+rem From the outside that looks exactly like Setup having done nothing at all.
+set "HERE=%~dp0"
+if not "!HERE:\AppData\Local\Temp\=!"=="!HERE!" (
+    echo   ERROR: this copy is running from inside a zip file.
+    echo.
+    echo   Windows unpacked it into a temporary folder, so anything set up here
+    echo   is thrown away again, the input folder included.
+    echo.
+    echo   Right click the zip, choose Extract All, pick a normal folder such as
+    echo   Documents, and run Setup.bat from there.
+    goto :finish
+)
+
+if defined CHECK_ONLY goto :folders_check
+call :make_folders
+if errorlevel 1 goto :finish
+echo   [x] folders     input\audio, input\images, output
+goto :folders_done
+
+:folders_check
+if exist "%~dp0input\images" (
+    echo   [x] folders     input and output are in place
+) else (
+    echo   [ ] folders     missing, would create input and output
+)
+
+:folders_done
 
 rem --------------------------------------------------------------------------
 rem  Python
@@ -254,13 +297,6 @@ if errorlevel 1 (
 rem Free the download cache, the unpacked copies are what matter now.
 if exist "%DL%" rmdir /s /q "%DL%" 2>nul
 
-rem Create the folders the instructions below tell the user to fill in. They are
-rem gitignored, so a fresh clone or a downloaded zip does not contain them, and
-rem being told to open a folder that is not there is a poor first impression.
-if not exist "%~dp0input\audio" mkdir "%~dp0input\audio" 2>nul
-if not exist "%~dp0input\images" mkdir "%~dp0input\images" 2>nul
-if not exist "%~dp0output" mkdir "%~dp0output" 2>nul
-
 echo.
 echo   ============================================================
 echo   Setup complete. Nothing was installed system wide.
@@ -281,6 +317,22 @@ goto :finish
 rem --------------------------------------------------------------------------
 rem  Helpers
 rem --------------------------------------------------------------------------
+:make_folders
+rem The three folders the printed instructions point at. A failure here is
+rem reported rather than swallowed: a folder that cannot be created is a folder
+rem the user cannot drop their audio and images into either.
+for %%D in ("input\audio" "input\images" "output") do (
+    if not exist "%~dp0%%~D" mkdir "%~dp0%%~D" 2>nul
+    if not exist "%~dp0%%~D" (
+        echo   [!] folders     could not create %%~D here.
+        echo                   Windows did not allow writing to this folder.
+        echo                   Move the whole project somewhere like Documents
+        echo                   and run Setup.bat again.
+        exit /b 1
+    )
+)
+exit /b 0
+
 :fetch
 rem %1 url, %2 destination. curl ships with Windows 10 and later and can resume
 rem a part finished download, so it is tried first.

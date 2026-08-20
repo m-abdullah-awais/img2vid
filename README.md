@@ -88,6 +88,11 @@ Pick one of the two options below. Option A needs no tools at all.
 6. You now have a folder named `img2vid-main`. Rename it to `img2vid` if you like, and
    move it somewhere simple such as `C:\Tools\img2vid` or `D:\img2vid`.
 
+Extract it before you run anything. Double clicking inside the ZIP window works, but
+Windows unpacks the file into a temporary folder first and throws that folder away
+afterwards, so the setup appears to do nothing and no `input` folder ever shows up.
+`Setup.bat` detects this and says so rather than letting you find out later.
+
 **Option B: clone with Git**, if you already have Git installed:
 
 ```
@@ -128,7 +133,9 @@ You only ever do this once per machine. If the download is interrupted, just run
 ### Step 3: Put your narration in
 
 Setup created an `input` folder for you. Open `input\audio` and copy your narration
-audio into it.
+audio into it. Setup creates `input\audio`, `input\images` and `output` as its very
+first action, before it downloads anything, so they are there even if the rest of the
+setup did not get to finish.
 
 Accepted: `.mp3`, `.wav`, `.m4a`, `.aac`, `.flac`, `.ogg`, `.opus`, `.wma`.
 
@@ -212,6 +219,7 @@ Setup checks what the machine already has and fills in only what is missing:
 
 | dependency | if already present | if missing |
 | --- | --- | --- |
+| `input\audio`, `input\images`, `output` | left alone | created first, before anything else |
 | Python 3.8 or newer | uses the one on `PATH` | unpacks a private copy into `runtime\python` |
 | ffmpeg and ffprobe | uses the ones on `PATH` | unpacks them into `bin` |
 | speech to text engine | uses the copy in `runtime\whisper` | installs it there, about 140 MB |
@@ -239,6 +247,12 @@ Setup.bat --no-transcribe  skip the speech engine, video assembly only
 Setup.bat --model tiny     pre-download a different model size (see Performance,
                            the default base is usually the right choice)
 ```
+
+The folders come first deliberately. `input` and `output` are in `.gitignore`, and Git
+cannot carry an empty folder in any case, so a fresh clone or a downloaded ZIP arrives
+without them. Creating them before anything that needs a network means a setup that
+stops early, on a slow download or a machine that fails a check, still leaves you with
+somewhere to put your files.
 
 If the speech engine cannot be installed, Setup says so and carries on. Video assembly
 is unaffected, and you can supply your own transcript instead.
@@ -931,6 +945,16 @@ Everything the tool generates, including intermediates and test output, stays in
 `runtime\` and `bin\` only exist if Setup had to fetch something into them.
 
 ## Troubleshooting
+
+**There is no `input` folder after running Setup.bat**
+Two things cause this. Either the copy is still inside the ZIP, in which case Windows
+is running it from a temporary folder that it deletes afterwards, so extract the ZIP
+properly first and run `Setup.bat` from the extracted folder. Or the folder sits
+somewhere Windows will not let you write to, such as `C:\Program Files`, in which case
+move the whole project to somewhere like `Documents` and run `Setup.bat` again. Setup
+reports both cases by name. Note that `Setup.bat --check` deliberately creates nothing,
+it only reports, so use a plain `Setup.bat` run. Failing all that, both
+`Transcribe Audio.bat` and `Create Video.bat` also create the folders when they start.
 
 **`ffmpeg was not found`** or **`Python was not found`**
 Run `Setup.bat`. It uses whatever the machine already has and fetches only the missing

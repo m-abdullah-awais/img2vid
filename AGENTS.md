@@ -105,6 +105,25 @@ The batch files are named for what they do, in workflow order, on the user's ins
   `github.com/GyanD/codexffmpeg` 7.1 essentials, about 88 MB, then gyan.dev, then
   `github.com/BtbN/FFmpeg-Builds` gpl, about 163 MB. The archives nest the binaries
   under a version named folder, so `for /r` searches for them rather than assuming.
+- **The input folders must be created first, not last.** They were originally created at
+  the tail of `Setup.bat`, after `setup_check.py` passed. `input/` and `output/` are
+  gitignored and git cannot carry an empty folder either way, so a shipped copy has
+  neither, and every one of the six `goto :finish` early exits left the recipient with
+  no input folder and no explanation. Reproduced on a `git ls-files` copy: break the
+  `i2v` import, run Setup, and no folders appear. They are now made before any network
+  work, in `:make_folders`, which reports a failure instead of hiding it behind `2>nul`.
+  `Transcribe Audio.bat` and `Create Video.bat` make them too, because their own Python
+  and ffmpeg guards bail out before `run.py` and `transcribe.py` ever get to run.
+  `--check` still creates nothing, it reports, because it promises to change nothing.
+  The regression harness is `temp\check_setup_folders.ps1`, six checks.
+- **Explorer runs a batch file straight out of a zip**, unpacking it under
+  `%TEMP%\Temp1_<name>.zip\` and discarding that folder afterwards. Setup then appears
+  to have done nothing at all, input folder included. Guarded by testing `%~dp0` for
+  `\AppData\Local\Temp\`. Batch substring replacement is case insensitive, verified, so
+  a lowercase path is caught too, and a legitimate `D:\Temp\` is not.
+- **`exit /b %CODE%` with `CODE` unset exits 0**, measured. Both step files bailed that
+  way on every early error, reporting success to anything that called them. They now
+  mirror Setup.bat and default `CODE` to 1 at `:finish`.
 - Two batch traps hit while writing it, both fixed: `findstr /c:"import site"` matches
   the commented out `#import site` line in the embeddable `._pth` file, so `/b` is
   needed to anchor to the start of a line. And `%~dp0` in a helper script under `temp\`

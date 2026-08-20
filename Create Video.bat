@@ -2,6 +2,12 @@
 setlocal
 cd /d "%~dp0"
 
+rem The folders the instructions in this file point at. Setup.bat creates them
+rem too, but they are gitignored and git cannot carry an empty folder, so a copy
+rem that was cloned or unzipped and never set up has none of them. Making them
+rem here as well means a user is never told to open a folder that is not there.
+for %%D in ("input\audio" "input\images" "output") do if not exist "%%~D" mkdir "%%~D" 2>nul
+
 rem ==========================================================================
 rem  Step 2 of 2.  Transcript + images + audio  ->  finished MP4.
 rem
@@ -66,6 +72,7 @@ if not "%CODE%"=="0" if not "%CODE%"=="2" (
 )
 
 :finish
+if not defined CODE set "CODE=1"
 if defined HOLD (
     echo.
     pause
