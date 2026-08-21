@@ -143,6 +143,13 @@ if errorlevel 1 (
     goto :finish
 )
 call :unzip "%DL%\python.zip" "%PYDIR%"
+if errorlevel 1 (
+    echo.
+    echo   ERROR: the Python download arrived but could not be unpacked.
+    echo   It is most likely incomplete. Run Setup.bat again, or install
+    echo   Python 3.8 or newer from https://www.python.org/downloads/.
+    goto :finish
+)
 if not exist "%PYDIR%\python.exe" (
     echo   ERROR: the Python download did not unpack correctly.
     goto :finish
@@ -207,16 +214,37 @@ if errorlevel 1 (
 )
 
 call :unzip "%FFZIP%" "%DL%\ffmpeg"
+if errorlevel 1 (
+    echo.
+    echo   ERROR: the ffmpeg download arrived but could not be unpacked.
+    echo   It is most likely incomplete. Run Setup.bat again, and if it stops
+    echo   here a second time, download a Windows build of ffmpeg yourself and
+    echo   copy ffmpeg.exe and ffprobe.exe into:
+    echo     "%BINDIR%"
+    goto :finish
+)
+
 if not exist "%BINDIR%" mkdir "%BINDIR%"
 rem The archives nest the binaries a couple of folders deep, and the folder name
 rem carries the build date, so search rather than assume a path.
 for /r "%DL%\ffmpeg" %%F in (ffmpeg.exe ffprobe.exe) do (
     if exist "%%~fF" copy /y "%%~fF" "%BINDIR%\%%~nxF" >nul
 )
-if not exist "%BINDIR%\ffmpeg.exe" (
-    echo   ERROR: the ffmpeg download did not contain ffmpeg.exe.
-    goto :finish
-)
+rem Both are needed. The renderer calls ffmpeg, and every duration and frame
+rem count it works from comes out of ffprobe.
+if not exist "%BINDIR%\ffmpeg.exe" goto :ffmpeg_missing
+if not exist "%BINDIR%\ffprobe.exe" goto :ffmpeg_missing
+goto :ffmpeg_copied
+
+:ffmpeg_missing
+echo.
+echo   ERROR: the ffmpeg download did not contain ffmpeg.exe and ffprobe.exe.
+echo   Download a Windows build from https://www.gyan.dev/ffmpeg/builds/ and
+echo   copy both files into:
+echo     "%BINDIR%"
+goto :finish
+
+:ffmpeg_copied
 set "FFSOURCE=downloaded into bin"
 
 :ffmpeg_ready
@@ -334,23 +362,57 @@ for %%D in ("input\audio" "input\images" "output") do (
 exit /b 0
 
 :fetch
-rem %1 url, %2 destination. curl ships with Windows 10 and later and can resume
-rem a part finished download, so it is tried first.
+rem %1 url, %2 destination. curl ships with Windows 10 and later, so it is tried
+rem first and powershell is the fallback.
+rem
+rem The two arguments are put into the environment before powershell is called
+rem rather than written into its command line. powershell.exe takes one layer of
+rem quoting off whatever follows -Command, so a quoted path arrives there as
+rem several separate arguments and the call fails on the first space. Every path
+rem in this project has a space in it, the folder is called "Images to Video".
+set "DL_URL=%~1"
+set "DL_OUT=%~2"
 if not exist "%DL%" mkdir "%DL%" >nul 2>&1
+
+rem Anything left behind by an earlier attempt is deleted rather than resumed.
+rem The callers work through several different addresses in turn, so resuming
+rem would append the start of one archive onto the middle of another and produce
+rem a file that looks complete and cannot be unpacked.
+if exist "%DL_OUT%" del /f /q "%DL_OUT%" >nul 2>&1
+
 where curl >nul 2>&1
 if not errorlevel 1 (
-    curl -L -f -# -C - --retry 3 --retry-delay 2 -o %2 %1
-    if not errorlevel 1 exit /b 0
+    curl -L -f -# --retry 3 --retry-delay 2 -o "%DL_OUT%" "%DL_URL%"
+    if not errorlevel 1 if exist "%DL_OUT%" exit /b 0
+    if exist "%DL_OUT%" del /f /q "%DL_OUT%" >nul 2>&1
 )
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ProgressPreference='SilentlyContinue'; try { Invoke-WebRequest -Uri %1 -OutFile %2 -UseBasicParsing -TimeoutSec 900; exit 0 } catch { exit 1 }"
-exit /b %ERRORLEVEL%
+  "$ProgressPreference='SilentlyContinue'; try { Invoke-WebRequest -Uri $env:DL_URL -OutFile $env:DL_OUT -UseBasicParsing -TimeoutSec 900; exit 0 } catch { Write-Host ('                  ' + $_.Exception.Message); exit 1 }"
+if errorlevel 1 exit /b 1
+if not exist "%DL_OUT%" exit /b 1
+exit /b 0
 
 :unzip
-rem %1 archive, %2 destination folder.
-if exist %2 rmdir /s /q %2 2>nul
+rem %1 archive, %2 destination folder. The paths travel in the environment for
+rem the same reason as in :fetch above.
+set "ZIP_SRC=%~1"
+set "ZIP_DST=%~2"
+if exist "%ZIP_DST%" rmdir /s /q "%ZIP_DST%" 2>nul
+mkdir "%ZIP_DST%" 2>nul
+
+rem tar has shipped with Windows since 2018 and reads zip files. It is tried
+rem first because it unpacks the 90 MB ffmpeg archive in seconds where
+rem Expand-Archive takes minutes. A half unpacked folder from a failed attempt
+rem is cleared out before the fallback runs, so the fallback starts clean.
+where tar >nul 2>&1
+if not errorlevel 1 (
+    tar -xf "%ZIP_SRC%" -C "%ZIP_DST%" 2>nul
+    if not errorlevel 1 exit /b 0
+    rmdir /s /q "%ZIP_DST%" 2>nul
+    mkdir "%ZIP_DST%" 2>nul
+)
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "try { Expand-Archive -LiteralPath %1 -DestinationPath %2 -Force; exit 0 } catch { exit 1 }"
+  "try { Expand-Archive -LiteralPath $env:ZIP_SRC -DestinationPath $env:ZIP_DST -Force; exit 0 } catch { Write-Host ('                  ' + $_.Exception.Message); exit 1 }"
 exit /b %ERRORLEVEL%
 
 :finish

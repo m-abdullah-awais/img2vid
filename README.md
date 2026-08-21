@@ -956,6 +956,15 @@ reports both cases by name. Note that `Setup.bat --check` deliberately creates n
 it only reports, so use a plain `Setup.bat` run. Failing all that, both
 `Transcribe Audio.bat` and `Create Video.bat` also create the folders when they start.
 
+**Setup.bat stops at `the ffmpeg download did not contain ffmpeg.exe`**
+Take the current version of the project and run `Setup.bat` again. Earlier versions
+could not unpack a download into a folder whose path contains a space, which is every
+copy of this project, so the archive arrived, the extraction failed without saying so,
+and the step after it blamed the archive contents. If a current copy still stops there,
+the download itself is arriving incomplete: run it once more, and if it keeps happening,
+download a Windows build from https://www.gyan.dev/ffmpeg/builds/ and copy `ffmpeg.exe`
+and `ffprobe.exe` into a `bin` folder next to `img2vid.py`.
+
 **`ffmpeg was not found`** or **`Python was not found`**
 Run `Setup.bat`. It uses whatever the machine already has and fetches only the missing
 piece, into this folder rather than system wide. If the machine has no internet, install

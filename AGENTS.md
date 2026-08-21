@@ -124,6 +124,39 @@ The batch files are named for what they do, in workflow order, on the user's ins
 - **`exit /b %CODE%` with `CODE` unset exits 0**, measured. Both step files bailed that
   way on every early error, reporting success to anything that called them. They now
   mirror Setup.bat and default `CODE` to 1 at `:finish`.
+- **`powershell -Command` strips a layer of quoting, so a path with a space in it cannot
+  be written into its command line.** `:fetch` and `:unzip` did exactly that, passing
+  `%1` and `%2` straight through, so `Expand-Archive -LiteralPath "E:\YT\Images to
+  Video\..."` reached PowerShell unquoted and died on `to` with
+  `PositionalParameterNotFound`. Every path in this project has a space in it. Measured,
+  not deduced: the extraction failed on every path tried. The paths now travel in the
+  environment, `$env:ZIP_SRC` and `$env:DL_URL`, which has no quoting to get wrong.
+- **That is what produced `the ffmpeg download did not contain ffmpeg.exe`** on the
+  recipient's machine. The failure was three steps earlier: the download succeeded, the
+  extraction failed, `call :unzip` was never checked, and `for /r` then walked an empty
+  folder and blamed the archive. Both callers now check it and say which step failed.
+  Neither path had ever run on the developer's machine, where ffmpeg, ffprobe and Python
+  are all on PATH, so `:python_install` and `:ffmpeg_install` were dead code locally.
+  When something only breaks for other people, look for the branch the local machine
+  never takes.
+- `tar` has shipped in Windows since 2018 and reads zip files. It is now tried before
+  `Expand-Archive`, which takes minutes on the 90 MB ffmpeg archive where tar takes
+  seconds. `Expand-Archive` stays as the fallback.
+- `curl -C -` was removed from `:fetch`. The callers try three different addresses in
+  turn, and resume would have appended the start of one archive onto a part finished
+  copy of another, giving a file that unpacks to nothing. Each attempt now deletes the
+  destination first and verifies the file exists before reporting success.
+- `call` runs a second round of percent expansion over its line, after delayed
+  expansion. Cost an hour: a `%20` in a test URL came back as the value of `%2` followed
+  by `0`. Real `Setup.bat` URLs contain no percent signs, `%PYTHON_VERSION%` is expanded
+  long before. Test harnesses that pass URLs must use `!vars!`, not `%1`.
+- The regression harness is `temp\check_setup_download.ps1`, eight checks. It lifts the
+  `:fetch` and `:unzip` bodies out of `Setup.bat` at run time and calls them, so it
+  cannot drift from the code it checks. It runs offline, over `file://` addresses. curl
+  cannot be exercised that way here: a `file://` URL needs the spaces percent encoded,
+  which `call` then eats, and this volume has 8.3 short names disabled. curl is covered
+  by the live run instead, `Setup.bat --local --no-transcribe` in a `git ls-files` copy,
+  which fetches and unpacks both Python and ffmpeg and passes every check.
 - Two batch traps hit while writing it, both fixed: `findstr /c:"import site"` matches
   the commented out `#import site` line in the embeddable `._pth` file, so `/b` is
   needed to anchor to the start of a line. And `%~dp0` in a helper script under `temp\`
