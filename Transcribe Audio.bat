@@ -40,6 +40,37 @@ rem from a terminal or another script does not block waiting for a key.
 set "HOLD="
 echo %cmdcmdline% | find /i "%~nx0" >nul && set "HOLD=1"
 
+rem --------------------------------------------------------------------------
+rem  Ask before doing anything, so opening this by mistake costs nothing.
+rem  Only when it was double clicked. From a terminal or a script it is
+rem  deliberate and goes straight through. The answer has to be typed, so a
+rem  stray keypress or a closed window cancels.
+rem --------------------------------------------------------------------------
+if not defined HOLD goto :confirmed
+echo.
+echo   Transcribe Audio
+echo   ------------------------------------------------------------
+echo.
+echo   This listens to the audio in input\audio and writes down what
+echo   is said and exactly when:
+echo.
+echo     input\script.srt      the transcript the video step reads
+echo     input\script.txt      the same thing, readable
+echo.
+echo   If a transcript is already there it is copied into
+echo   temp\replaced first, so nothing you have edited is lost.
+echo.
+echo   It runs on this computer only, nothing is uploaded. Expect
+echo   about a minute of work for every eight minutes of audio, and
+echo   most of the processor to be busy while it runs.
+echo.
+set "GO="
+set /p "GO=  Type Y then Enter to start, or just press Enter to cancel:  "
+if /i "%GO%"=="Y" goto :confirmed
+if /i "%GO%"=="YES" goto :confirmed
+goto :cancelled
+:confirmed
+
 rem Find a Python. The private copy that Setup.bat may have unpacked wins, so a
 rem folder that was set up portably keeps working on a machine with no Python.
 set "PY="
@@ -91,3 +122,12 @@ if defined HOLD (
     pause
 )
 exit /b %CODE%
+
+rem Reached only by the confirmation above. It sits past the exit so that the
+rem normal path can never fall into it.
+:cancelled
+echo.
+echo   Cancelled. No transcript was written and nothing was changed.
+set "CODE=0"
+goto :finish
+

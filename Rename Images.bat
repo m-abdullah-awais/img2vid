@@ -39,6 +39,34 @@ rem from a terminal or another script does not block waiting for a key.
 set "HOLD="
 echo %cmdcmdline% | find /i "%~nx0" >nul && set "HOLD=1"
 
+rem --------------------------------------------------------------------------
+rem  Ask before doing anything, so opening this by mistake costs nothing.
+rem  This one renames your files, so it matters most here. There is a second
+rem  question later, after the exact list of renames has been printed. This
+rem  first one is only about whether you meant to open it at all.
+rem --------------------------------------------------------------------------
+if not defined HOLD goto :confirmed
+echo.
+echo   Rename Images
+echo   ------------------------------------------------------------
+echo.
+echo   This renames the files in input\images so they sort in the
+echo   order the video needs, oldest first:
+echo.
+echo     IMG_20260401_182233.jpg  -^>  001.jpg
+echo     screenshot ^(10^).png      -^>  002.png
+echo.
+echo   It shows you the full list and asks again before renaming
+echo   anything, and the old names can be put back with --undo.
+echo   Only input\images is touched.
+echo.
+set "GO="
+set /p "GO=  Type Y then Enter to continue, or just press Enter to cancel:  "
+if /i "%GO%"=="Y" goto :confirmed
+if /i "%GO%"=="YES" goto :confirmed
+goto :cancelled
+:confirmed
+
 rem Find a Python. The private copy that Setup.bat may have unpacked wins, so a
 rem folder that was set up portably keeps working on a machine with no Python.
 set "PY="
@@ -70,3 +98,12 @@ if defined HOLD (
     pause
 )
 exit /b %CODE%
+
+rem Reached only by the confirmation above. It sits past the exit so that the
+rem normal path can never fall into it.
+:cancelled
+echo.
+echo   Cancelled. No file was renamed and nothing was changed.
+set "CODE=0"
+goto :finish
+

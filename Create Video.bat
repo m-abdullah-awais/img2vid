@@ -36,6 +36,35 @@ rem from a terminal or another script does not block waiting for a key.
 set "HOLD="
 echo %cmdcmdline% | find /i "%~nx0" >nul && set "HOLD=1"
 
+rem --------------------------------------------------------------------------
+rem  Ask before doing anything, so opening this by mistake costs nothing.
+rem  Only when it was double clicked. From a terminal or a script it is
+rem  deliberate and goes straight through. The answer has to be typed, so a
+rem  stray keypress or a closed window cancels.
+rem --------------------------------------------------------------------------
+if not defined HOLD goto :confirmed
+echo.
+echo   Create Video
+echo   ------------------------------------------------------------
+echo.
+echo   This builds the finished video from what is in the input
+echo   folder:
+echo.
+echo     input\script.srt      the transcript, one line per image
+echo     input\images\         your images, in filename order
+echo     input\audio\          your narration
+echo.
+echo   The video is written to output\ and replaces any file there
+echo   with the same name. Expect a minute or two for a ten minute
+echo   video, and most of the processor to be busy while it runs.
+echo.
+set "GO="
+set /p "GO=  Type Y then Enter to start, or just press Enter to cancel:  "
+if /i "%GO%"=="Y" goto :confirmed
+if /i "%GO%"=="YES" goto :confirmed
+goto :cancelled
+:confirmed
+
 rem Find a Python. The private copy that Setup.bat may have unpacked wins, so a
 rem folder that was set up portably keeps working on a machine with no Python.
 set "PY="
@@ -78,3 +107,12 @@ if defined HOLD (
     pause
 )
 exit /b %CODE%
+
+rem Reached only by the confirmation above. It sits past the exit so that the
+rem normal path can never fall into it.
+:cancelled
+echo.
+echo   Cancelled. No video was built and nothing was changed.
+set "CODE=0"
+goto :finish
+

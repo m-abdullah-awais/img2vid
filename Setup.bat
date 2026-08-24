@@ -55,6 +55,41 @@ rem Pause at the end only when double clicked.
 set "HOLD="
 echo %cmdcmdline% | find /i "%~nx0" >nul && set "HOLD=1"
 
+rem --------------------------------------------------------------------------
+rem  Ask before doing anything, so opening this by mistake costs nothing.
+rem
+rem  Only when it was double clicked. Started from a terminal or another script
+rem  it is deliberate and goes straight through, which keeps it usable from a
+rem  command line and in automation. --check changes nothing, so it never asks.
+rem
+rem  The answer has to be typed. Pressing Enter, closing the window, or letting
+rem  a stray keypress land all cancel, which is the point.
+rem --------------------------------------------------------------------------
+if not defined HOLD goto :confirmed
+if defined CHECK_ONLY goto :confirmed
+echo.
+echo   img2vid setup
+echo   ============================================================
+echo.
+echo   This prepares img2vid in this folder. It will:
+echo.
+echo     - create the input and output folders
+echo     - install Python and ffmpeg here, but only if they are missing
+echo     - install the offline speech engine and its model
+echo.
+echo   The first run downloads up to about 280 MB, and only what this
+echo   machine is actually missing.
+echo.
+echo   Nothing is installed system wide, and nothing outside this folder
+echo   is touched. Deleting the folder removes every trace.
+echo.
+set "GO="
+set /p "GO=  Type Y then Enter to start, or just press Enter to cancel:  "
+if /i "%GO%"=="Y" goto :confirmed
+if /i "%GO%"=="YES" goto :confirmed
+goto :cancelled
+:confirmed
+
 echo.
 echo   img2vid setup
 echo   ============================================================
@@ -422,3 +457,11 @@ if defined HOLD (
     pause
 )
 exit /b %CODE%
+
+rem Reached only by the confirmation above. It sits past the exit so that the
+rem normal path can never fall into it.
+:cancelled
+echo.
+echo   Cancelled. Nothing was installed and nothing was changed.
+set "CODE=0"
+goto :finish

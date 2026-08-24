@@ -153,6 +153,26 @@ The batch files are named for what they do, in workflow order, on the user's ins
   its contents rather than its name so a plausible looking wrong order is still caught,
   and deletes the records its own runs produced.
 
+- Every batch file asks before it does anything, because the four launchers sit at the
+  top of the folder and a curious or mistaken double click should cost nothing. The
+  prompt appears only when `%cmdcmdline%` shows the file was double clicked, the same
+  test the closing `pause` already used, so a terminal or a calling script goes straight
+  through and automation is unaffected. Verified with a wrapper batch file: no prompt,
+  no pause, exit code propagates.
+- The answer is read with `set /p`, not `choice`. `set /p` needs a typed Y and Enter,
+  so a bare Enter, a closed window or a stray keypress all cancel, which is the whole
+  point. `choice` would accept a single accidental Y, and is one more thing that has to
+  exist on the machine.
+- **A `>` inside `echo` is a redirection operator, not text.** The confirmation in
+  `Rename Images.bat` illustrated the rename as `IMG_20260401_182233.jpg -> 001.jpg`,
+  and running it silently created empty files called `001.jpg` and `002.png` in the
+  project root instead of printing the arrow. They were committed before it was
+  noticed. Any `>`, `<`, `|` or `&` in an `echo` line needs a `^` in front of it, the
+  same as the `(` and `)` already escaped there. Grep for it after writing any echo
+  block: `grep -n "^echo " *.bat | grep -E "[^^][><|&]"`.
+- `Setup.bat --check` never asks, since it changes nothing.
+- The `:cancelled` label sits after `exit /b`, so the normal path cannot fall into it.
+
 ## Setup And Portability
 
 - `Setup.bat` installs nothing system wide, per rule 7. System Python and ffmpeg are
