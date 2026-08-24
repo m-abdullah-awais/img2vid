@@ -75,7 +75,7 @@ if not exist "runtime\whisper\lib" (
     goto :finish
 )
 
-%PY% transcribe.py %FLAGS% %*
+%PY% app\transcribe.py %FLAGS% %*
 set "CODE=%ERRORLEVEL%"
 
 rem 2 means the input folder still needs filling in, which is not a failure.

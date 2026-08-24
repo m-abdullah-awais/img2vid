@@ -13,13 +13,14 @@ The result is written to `output\<transcript name>.mp4`.
 Any extra arguments are passed straight through to the renderer, so this still
 works:
 
-    python run.py --fps 10
+    python app\run.py --fps 10
 """
 
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# These launchers live in app\, so the project folder is the one above them.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from i2v.cli import main  # noqa: E402

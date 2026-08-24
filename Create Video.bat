@@ -62,7 +62,7 @@ if not exist "bin\ffmpeg.exe" (
     )
 )
 
-%PY% run.py %FLAGS% %*
+%PY% app\run.py %FLAGS% %*
 set "CODE=%ERRORLEVEL%"
 
 rem 2 means the input folder still needs filling in, which is not a failure.

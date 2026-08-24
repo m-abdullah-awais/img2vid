@@ -5,13 +5,14 @@ It is a script rather than an inline one liner because quoting Python inside a
 .bat file is a reliable source of bugs, and this has to get the percent signs in
 a version string right.
 
-    python setup_speech.py [base|tiny|small]
+    python app\setup_speech.py [base|tiny|small]
 """
 
 import os
 import sys
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# These launchers live in app\, so the project folder is the one above them.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from i2v import speech  # noqa: E402

@@ -15,7 +15,7 @@ image is left alone. This is what Rename Images.bat calls.
 
 Every run records what it did under temp\renames, so
 
-    python rename_images.py --undo
+    python app\rename_images.py --undo
 
 puts the previous names back.
 """
@@ -26,7 +26,8 @@ import os
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# These launchers live in app\, so the project folder is the one above them.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from i2v import cli  # noqa: E402

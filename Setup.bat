@@ -293,7 +293,7 @@ if exist "%WHISPERLIB%\faster_whisper" (
 )
 
 echo   [.] model       checking for the %SPEECH_MODEL% model, downloaded once
-"%PY%" setup_speech.py %SPEECH_MODEL%
+"%PY%" app\setup_speech.py %SPEECH_MODEL%
 if errorlevel 1 goto :speech_failed
 echo   [x] model       %SPEECH_MODEL%, in runtime\whisper\models
 goto :report
@@ -315,7 +315,7 @@ if defined CHECK_ONLY (
 echo.
 echo   checking that everything works together
 echo.
-"%PY%" setup_check.py
+"%PY%" app\setup_check.py
 if errorlevel 1 (
     echo.
     echo   Setup did not pass its own check. See the message above.

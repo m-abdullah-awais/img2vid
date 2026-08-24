@@ -44,9 +44,10 @@ runs until the audio ends.
 
 Two steps, two batch files:
 
-1. `Transcribe Audio.bat` -> `transcribe.py` -> `input\script.srt`, `.txt` and `temp\*.json`.
-   Local faster-whisper on the CPU. Nothing is uploaded.
-2. `Create Video.bat` -> `run.py` -> `img2vid.py`. The original renderer, unchanged.
+1. `Transcribe Audio.bat` -> `app\transcribe.py` -> `input\script.srt`, `.txt` and
+   `temp\*.json`. Local faster-whisper on the CPU. Nothing is uploaded.
+2. `Create Video.bat` -> `app\run.py` -> `app\img2vid.py`. The original renderer,
+   unchanged.
 
 Priority is speed at both steps. All heavy work is delegated to ffmpeg or to the speech
 engine. Python only orchestrates.
@@ -89,6 +90,33 @@ The batch files are named for what they do, in workflow order, on the user's ins
 - Create Video.bat has a FLAGS line and an interactive prompt on mismatch, because a
   double click gives the user nowhere to type a flag. Transcribe Audio.bat follows the
   same pattern, including the --pick chooser.
+
+## Root Layout
+
+- The six launchers live in `app\`, on the user's decision of 2026-08-24, so that the
+  root holds only what a user touches: the four `.bat` files, `README.md`, `LICENSE`,
+  `AGENTS.md`, `.gitignore`, and the folders. Fourteen items down to ten. Not to be
+  confused with `app/src` in the Story Video Generator notes below, which is a different
+  project.
+- The `.bat` files stay at the root and must. They are the whole interface, and every one
+  of them treats `%~dp0` as the project folder: `cd /d "%~dp0"`, `input\images`,
+  `runtime\python\python.exe`, the zip guard. Moving them means rewriting each of those
+  as `%~dp0..\` in order to hide the only thing a user is looking for.
+- Every launcher therefore computes `ROOT` as the folder above its own, not its own:
+  `os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`. `setup_check.py` also
+  keeps `APP`, because it runs `img2vid.py` as a separate process.
+- `from run import ...` in `transcribe.py` and `rename_images.py` still works because
+  `sys.path[0]` is the folder of the running script, which is now `app\`, and `ROOT` is
+  inserted ahead of it for `import i2v`. Nothing needs `app` to be a package, so there is
+  no `__init__.py` in it.
+- The `.bat` files were not renumbered. `1 Setup.bat` would read badly in the error
+  messages that name it, and the README already numbers the steps. So Explorer still
+  shows them in the wrong order, which is a known and accepted cost.
+- Verified after the move: `app\setup_check.py` all fourteen checks,
+  `Create Video.bat --dry-run` over the real 162 image project, `Transcribe Audio.bat
+  --help`, `Setup.bat --check`, `Rename Images.bat --dry-run`, and all three harnesses
+  including the shipped copy one, which proves `app\setup_check.py` resolves from a
+  `git ls-files` copy.
 
 ## Renaming Images
 
@@ -227,7 +255,7 @@ Deliberate differences here, all for speed or for this project's needs:
 - `word_timestamps` defaults to off and is switched on automatically only when cue
   reshaping needs it. It is pure cost otherwise.
 - The result cache means a repeat run does not need the engine at all: the cues are
-  reread from `temp	ranscribe_cache` and the three output files are rewritten from
+  reread from `temp\transcribe_cache` and the three output files are rewritten from
   them. That is deliberate, but it caught out the verification harness, which renamed
   the engine folder away and then saw a successful run. The missing engine path has to
   be exercised with `--fresh`.
@@ -252,6 +280,20 @@ Install shape:
 ## Findings That Cost Time To Discover
 
 These were all measured on this machine. Do not undo them without re-measuring.
+
+0. **Never patch a file in this project through a shell quoted Python one liner or
+   heredoc. Use the Edit tool.** Cost time three separate times. Two distinct failures,
+   both silent:
+   - Doubled backslashes collapse before Python sees them, so `"app\\run.py"` becomes
+     `app` plus a carriage return, `"app\\transcribe.py"` becomes `app` plus a tab, and
+     `"temp\\transcribe_cache"` in AGENTS.md became a tab as well. `\s` and `\i` survive
+     only because they are not valid escapes. The batch files then failed with names like
+     `appename_images.py`. Build any backslash as `chr(92)` if a script is unavoidable,
+     and scan afterwards for bytes 0x07 to 0x0D.
+   - A double quote inside a `python -c "..."` argument ends the shell string, so
+     `` `cd /d "%~dp0"` `` was written without its quotes.
+   Also note `io.open(path)` translates a lone carriage return to a newline on read, so
+   repairing that damage needs `newline=""` on both the read and the write.
 
 1. **The concat demuxer cannot be used for image timing.** It was the first design and it
    was wrong. Durations are stored in whole microseconds, and a 30fps frame boundary is

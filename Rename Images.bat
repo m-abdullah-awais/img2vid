@@ -53,7 +53,7 @@ if not defined PY (
     goto :finish
 )
 
-%PY% rename_images.py %FLAGS% %*
+%PY% app\rename_images.py %FLAGS% %*
 set "CODE=%ERRORLEVEL%"
 
 rem 2 means nothing was renamed, either because the folder is still empty or

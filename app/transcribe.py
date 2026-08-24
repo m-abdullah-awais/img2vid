@@ -18,7 +18,7 @@ video needs. Use --max-chars or --max-seconds to control that count.
 
 Any extra arguments are passed through, so this still works:
 
-    python transcribe.py --model small --max-chars 90
+    python app\transcribe.py --model small --max-chars 90
 """
 
 import argparse
@@ -29,7 +29,8 @@ import subprocess
 import sys
 import time
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# These launchers live in app\, so the project folder is the one above them.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from i2v import captions, cli, probe, speech  # noqa: E402

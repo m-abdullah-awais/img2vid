@@ -12,7 +12,10 @@ import shutil
 import subprocess
 import sys
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# This file lives in app\ with the rest of the launchers, and the project
+# folder is the one above it.
+APP = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(APP)
 sys.path.insert(0, ROOT)
 
 WORK = os.path.join(ROOT, "temp", "setup_check")
@@ -84,7 +87,7 @@ def main():
 
     output = os.path.join(WORK, "out.mp4")
     result = subprocess.run([
-        sys.executable, os.path.join(ROOT, "img2vid.py"),
+        sys.executable, os.path.join(APP, "img2vid.py"),
         "-t", os.path.join(WORK, "script.srt"),
         "-i", images_dir,
         "-a", os.path.join(WORK, "audio.wav"),

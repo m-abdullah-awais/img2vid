@@ -20,8 +20,8 @@ If you already have a transcript, skip step one and run **Create Video.bat**. Fo
 control, both steps have a normal command line:
 
 ```
-python transcribe.py --max-chars 90
-python img2vid.py -t script.srt -i .\images -a narration.mp3 -o video.mp4
+python app\transcribe.py --max-chars 90
+python app\img2vid.py -t script.srt -i .\images -a narration.mp3 -o video.mp4
 ```
 
 ## Contents
@@ -107,8 +107,10 @@ writes while it works, which makes it slower and can lock files mid render.
 
 ### Step 2: Run Setup.bat
 
-1. Open the folder. You will see **Setup.bat**, **Transcribe Audio.bat** and
-   **Create Video.bat**.
+1. Open the folder. Everything you ever double click is one of the four `.bat` files
+   sitting at the top: **Setup.bat**, **Transcribe Audio.bat**, **Rename Images.bat**
+   and **Create Video.bat**. The `app` and `i2v` folders are the program itself and you
+   never need to open them.
 2. Double click **Setup.bat**.
 3. If Windows shows a blue box saying *"Windows protected your PC"*, click
    **More info**, then **Run anyway**. Windows shows this for any script downloaded
@@ -464,13 +466,13 @@ project\
 Then run:
 
 ```
-python img2vid.py -t script.srt -i .\images -a narration.mp3 -o video.mp4
+python app\img2vid.py -t script.srt -i .\images -a narration.mp3 -o video.mp4
 ```
 
 Check the timing before committing to a render:
 
 ```
-python img2vid.py -t script.srt -i .\images -a narration.mp3 --dry-run
+python app\img2vid.py -t script.srt -i .\images -a narration.mp3 --dry-run
 ```
 
 `--dry-run` prints the resolved timeline and exits without encoding anything:
@@ -494,7 +496,7 @@ guarantee the frame quantiser gives you: the video cannot drift against the audi
 Several audio files are joined in the order you list them:
 
 ```
-python img2vid.py -t script.srt -i .\images -a part1.mp3 part2.mp3 part3.mp3 -o video.mp4
+python app\img2vid.py -t script.srt -i .\images -a part1.mp3 part2.mp3 part3.mp3 -o video.mp4
 ```
 
 ## Transcript formats
@@ -854,7 +856,7 @@ you watched the finished video.
 When you would rather have the video anyway, pass `--force`:
 
 ```
-python img2vid.py -t script.srt -i .\images -a narration.mp3 --force
+python app\img2vid.py -t script.srt -i .\images -a narration.mp3 --force
 ```
 
 Create Video.bat will also offer it. If the counts do not match it prints the problem and asks
@@ -914,7 +916,7 @@ accumulate.
 **There is no resume.** A stopped render is abandoned, not paused. Starting again begins
 from the first frame. If you want a render to survive closing the window, do not close the
 window: leave it open, or launch it detached with something like
-`start /b python img2vid.py ...`.
+`start /b python app\img2vid.py ...`.
 
 ## Verification
 
@@ -973,13 +975,14 @@ Transcribe Audio.bat  step 1, audio -> transcript
 Create Video.bat      step 2, transcript + images + audio -> MP4
 Rename Images.bat     optional, renumbers input\images by date created
 
-transcribe.py         zero argument launcher that Transcribe Audio.bat calls
-run.py                zero argument launcher that Create Video.bat calls
-rename_images.py      the renumbering that Rename Images.bat calls
-img2vid.py            CLI entry point for the assembly step
-setup_check.py        end to end proof that a fresh setup works
-setup_speech.py       records the interpreter and fetches the speech model
-i2v\
+app\                  what the four .bat files above actually run
+  transcribe.py       zero argument launcher that Transcribe Audio.bat calls
+  run.py              zero argument launcher that Create Video.bat calls
+  rename_images.py    the renumbering that Rename Images.bat calls
+  img2vid.py          CLI entry point for the assembly step
+  setup_check.py      end to end proof that a fresh setup works
+  setup_speech.py     records the interpreter and fetches the speech model
+i2v\                  the library, imported by everything in app\
   cli.py              argument parsing, orchestration, progress output
   captions.py         cue type, SRT/VTT/TXT/JSON writers, cue re-splitting
   speech.py           faster-whisper wrapper, the only third party touch point
@@ -1028,13 +1031,13 @@ copy of this project, so the archive arrived, the extraction failed without sayi
 and the step after it blamed the archive contents. If a current copy still stops there,
 the download itself is arriving incomplete: run it once more, and if it keeps happening,
 download a Windows build from https://www.gyan.dev/ffmpeg/builds/ and copy `ffmpeg.exe`
-and `ffprobe.exe` into a `bin` folder next to `img2vid.py`.
+and `ffprobe.exe` into a `bin` folder next to `Setup.bat`.
 
 **`ffmpeg was not found`** or **`Python was not found`**
 Run `Setup.bat`. It uses whatever the machine already has and fetches only the missing
 piece, into this folder rather than system wide. If the machine has no internet, install
 Python from python.org and put a Windows ffmpeg build's `ffmpeg.exe` and `ffprobe.exe`
-into a `bin` folder next to `img2vid.py`.
+into a `bin` folder next to `Setup.bat`.
 
 **`the speech engine is not installed`**
 Run `Setup.bat`. It installs the engine into `runtime\whisper\lib` inside this folder.
@@ -1093,7 +1096,7 @@ render fails, or Setup cannot get itself going on your machine,
 and what it printed, and I will take a look.
 
 If you are reporting a timing or quality problem, the output of
-`python img2vid.py ... --dry-run` is the single most useful thing you can paste in.
+`python app\img2vid.py ... --dry-run` is the single most useful thing you can paste in.
 
 ## License
 
