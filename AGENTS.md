@@ -90,6 +90,41 @@ The batch files are named for what they do, in workflow order, on the user's ins
   double click gives the user nowhere to type a flag. Transcribe Audio.bat follows the
   same pattern, including the --pick chooser.
 
+## Renaming Images
+
+- `Rename Images.bat` and `rename_images.py`, asked for on 2026-08-24: renumber
+  `input\images` to `001`, `002`, `003` in date created order. The user already had a
+  standalone `input\images\rename_images_by_date.bat` doing this, dropped in the folder
+  and double clicked. It is still there, it is theirs, and it was left alone.
+- It is a helper, not a third step. The header of README still says two steps.
+- The paths it renames through are unique temporary names, and the moves are done in two
+  full passes: everything to a temporary name, then everything to its number. A single
+  pass breaks the ordinary case, a folder already numbered `001` and `002` where the two
+  have to swap, because `os.rename` onto an existing name fails on Windows and leaves the
+  folder half renumbered. The user's own script has the same two pass shape but sorts by
+  date a second time in pass two, so files sharing a timestamp can come back in a
+  different order than they went in.
+- Ties in the timestamp are broken by `natural_key`, the renderer's own filename order.
+  Copying a folder stamps every file in it with the same creation time, often to the
+  second, so without a tie break the result would depend on the order `os.listdir`
+  happens to return. That is check 4 of the harness.
+- `st_ctime` is the creation time on Windows, the one Explorer calls Date created. It is
+  when the file arrived on this machine, not when the picture was taken, which is why
+  `--by modified` exists.
+- Every run writes its moves to `temp\renames\<stamp>.json` and `--undo` replays them
+  backwards. `--undo` takes an optional record path, which is what lets the harness undo
+  only its own runs and never touch the user's records. A record is written even when a
+  rename fails halfway, in the `finally`, because that is exactly when undo matters.
+- Exit codes follow `run.py`: 0 done or already in order, 2 nothing to do, which covers
+  an empty folder, `--dry-run`, and answering the prompt with no, and 1 for a real
+  failure. Both step files treat 2 as not a failure, so none of those print an error.
+- Without a console it refuses to rename and says to add `--yes`, so a piped or scheduled
+  run cannot silently renumber a folder.
+- The regression harness is `temp\check_rename_images.ps1`, thirteen checks. It sets
+  `CreationTime` from PowerShell, which `os.utime` cannot do, identifies every file by
+  its contents rather than its name so a plausible looking wrong order is still caught,
+  and deletes the records its own runs produced.
+
 ## Setup And Portability
 
 - `Setup.bat` installs nothing system wide, per rule 7. System Python and ffmpeg are

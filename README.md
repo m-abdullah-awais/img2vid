@@ -31,6 +31,7 @@ python img2vid.py -t script.srt -i .\images -a narration.mp3 -o video.mp4
 - [What Setup.bat installs](#what-setupbat-installs)
 - [Transcribe Audio.bat](#transcribe-audiobat)
 - [Create Video.bat](#create-videobat)
+- [Rename Images.bat](#rename-imagesbat)
 - [Quick start](#quick-start)
 - [Transcript formats](#transcript-formats)
 - [Matching images to timestamps](#matching-images-to-timestamps)
@@ -172,6 +173,11 @@ Accepted: `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.tif`.
 **Name them so they sort in order**: `1.jpg`, `2.jpg`, `3.jpg` and so on. Plain numbers
 are safest. The first image is shown for the first line of the transcript, the second
 for the second line, and so on to the end.
+
+Already have names like `IMG_20260401_182233.jpg`? Double click **Rename Images.bat**.
+It renumbers the folder `001`, `002`, `003` in the order the files were created, shows
+the whole list before it changes anything, and can put the old names back. See
+[Rename Images.bat](#rename-imagesbat).
 
 If you end up with the wrong number of images, that is fine and recoverable. See
 [When the counts do not match](#when-the-counts-do-not-match).
@@ -383,6 +389,63 @@ set "FLAGS=--force --fps 15"
 
 It checks for Python and ffmpeg up front and tells you exactly what is missing rather
 than failing with a stack trace.
+
+## Rename Images.bat
+
+Optional, and the only part of this project that changes files you brought in. The video
+is built from the images in filename order, one per transcript line, so the names decide
+which image lands on which line. Camera and download names do not sort that way.
+
+Double click **Rename Images.bat**. It shows what it is about to do, oldest file first by
+the date each one was created, and asks before changing anything:
+
+```
+  rename images
+  ------------------------------------------------------------
+  folder    : input\images
+  images    : 86
+  order     : date created, oldest first
+
+    IMG_20260401_182233.jpg                  ->  001.jpg
+    screenshot (10).png                      ->  002.png
+    scene 2.jpeg                             ->  003.jpeg
+    ... and 83 more
+
+  Rename 86 files? [y/N]
+```
+
+Each file keeps its own extension, and anything in the folder that is not an image is
+left alone. Every run records what it did under `temp\renames`, so the previous names can
+be put back:
+
+```
+Rename Images.bat --undo
+```
+
+Double clicking leaves nowhere to type a flag, so open `Rename Images.bat` in a text
+editor and put what you want on the `FLAGS` line near the top, the same way the other two
+step files work:
+
+```
+set "FLAGS=--undo"
+```
+
+| flag | what it does |
+| --- | --- |
+| `--dry-run` | show the list and change nothing |
+| `--by modified` | order by date modified instead of date created |
+| `--by name` | order by the current filenames |
+| `--start 0` | number from `000` instead of `001` |
+| `--digits 1` | name them `1`, `2`, `3` instead of `001`, `002`, `003` |
+| `--undo` | put back the names from the previous run |
+| `--folder PATH` | renumber a folder other than `input\images` |
+
+A word on date created. Windows sets it when the file arrives on the machine, not when
+the picture was taken, so a folder that was copied carries the time of the copy and every
+file in it can share one timestamp down to the second. Files that tie are ordered by
+filename, the same natural order the renderer itself reads them in, so the result is
+never left to chance. `--by modified` is often closer to when the images were really
+made.
 
 ## Quick start
 
@@ -908,9 +971,11 @@ It runs against whatever is in `input\audio\`, writes only into `temp\`, and che
 Setup.bat             one time provisioning, nothing system wide
 Transcribe Audio.bat  step 1, audio -> transcript
 Create Video.bat      step 2, transcript + images + audio -> MP4
+Rename Images.bat     optional, renumbers input\images by date created
 
 transcribe.py         zero argument launcher that Transcribe Audio.bat calls
 run.py                zero argument launcher that Create Video.bat calls
+rename_images.py      the renumbering that Rename Images.bat calls
 img2vid.py            CLI entry point for the assembly step
 setup_check.py        end to end proof that a fresh setup works
 setup_speech.py       records the interpreter and fetches the speech model
