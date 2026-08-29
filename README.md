@@ -198,13 +198,17 @@ progress bar runs while it works. A ten minute video takes roughly 90 to 110 sec
 an average machine.
 
 ```
-  done in 96.4s  ->  output\script.mp4  (78.2 MB, 600.000s, 6.2x realtime)
+  done in 96.4s  ->  output\2026-08-29_14-30-22.mp4  (78.2 MB, 600.000s, 6.2x realtime)
 ```
 
 ### Step 7: Watch it
 
-Your finished video is in the `output` folder, named after the transcript. Double click
-to play it.
+Your finished video is in the `output` folder, named for the date and time it was
+built, such as `2026-08-29_14-30-22.mp4`. Double click to play it.
+
+Naming each render by the moment it finished means a second attempt never quietly
+replaces the first, and the folder stays in the order you made them. To choose the
+name yourself, pass one: `Create Video.bat -o output\my-video.mp4`.
 
 That is the whole process. Setup is a one time thing, so for every video after this one
 you only repeat steps 3 to 6.
@@ -219,7 +223,7 @@ input\
   script.srt          written for you in step 4
   images\             one image per line        <- you provide
 output\
-  script.mp4          your finished video
+  2026-08-29_14-30-22.mp4    your finished video, named for when it was built
 ```
 
 | | do this |
@@ -380,9 +384,10 @@ input\
   audio\              one or more audio files
 ```
 
-Drop your files in, run it again, and the finished video appears in `output\` named
-after the transcript. Audio files are joined in natural filename order, so
-`part1.mp3`, `part2.mp3`, `part10.mp3` play in the order you would expect.
+Drop your files in, run it again, and the finished video appears in `output\`,
+named for the date and time it was built so a rerun never replaces the last one.
+Audio files are joined in natural filename order, so `part1.mp3`, `part2.mp3`,
+`part10.mp3` play in the order you would expect.
 
 It also forwards any flags you give it, so this works too:
 

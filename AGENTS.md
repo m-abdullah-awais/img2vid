@@ -91,6 +91,20 @@ The batch files are named for what they do, in workflow order, on the user's ins
   double click gives the user nowhere to type a flag. Transcribe Audio.bat follows the
   same pattern, including the --pick chooser.
 
+## Output Naming
+
+- The finished video is named `%Y-%m-%d_%H-%M-%S.mp4` in local time, set by
+  `OUTPUT_NAME` in `app\run.py`, on the user's decision of 2026-08-29. It used to take
+  the transcript's stem, which in practice was always `script.srt`, so every render
+  produced `output\script.mp4` and silently replaced the take before it. A timestamp
+  keeps every attempt and sorts oldest first in Explorer.
+- `-o` on the command line still wins. `run.py` appends its own `-o` first and argparse
+  keeps the last, so a user supplied one overrides it. `run.py` reads `-o` out of the
+  passed arguments itself, in all four forms argparse accepts (`-o X`, `-oX`,
+  `--output X`, `--output=X`), purely so the `output :` line it prints is the file that
+  will really be written. Without that it printed the invented timestamp name while the
+  render went somewhere else, which is worse than not printing it at all.
+
 ## Root Layout
 
 - The six launchers live in `app\`, on the user's decision of 2026-08-24, so that the

@@ -16,7 +16,8 @@ rem    input\script.srt      a timestamped transcript, or run Transcribe Audio.b
 rem    input\images\         one image per transcript line, in name order
 rem    input\audio\          one or more audio files
 rem
-rem  The video is written to output\ and named after the transcript.
+rem  The video is written to output\ and named for the date and time it was
+rem  built, so a second attempt never replaces the first.
 rem
 rem  Options. Put any flags you always want between the quotes below.
 rem

@@ -8,7 +8,8 @@ to type. This is what Create Video.bat calls.
       images\             one image per transcript line
       audio\              one or more audio files
 
-The result is written to `output\<transcript name>.mp4`.
+The result is written to `output\<date>_<time>.mp4`, so a new render never
+overwrites the last one and the folder sorts oldest first.
 
 Any extra arguments are passed straight through to the renderer, so this still
 works:
@@ -18,6 +19,7 @@ works:
 
 import os
 import sys
+import time
 
 # These launchers live in app\, so the project folder is the one above them.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -34,6 +36,13 @@ OUTPUT = os.path.join(ROOT, "output")
 TRANSCRIPT_EXTENSIONS = (".srt", ".vtt", ".txt")
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff")
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus", ".wma")
+
+# Videos are named for when they were made, not for the transcript. The
+# transcript is nearly always called script.srt, so naming the video after it
+# meant every render produced output\script.mp4 and silently replaced the one
+# before it. A timestamp keeps every take, and sorts oldest first in Explorer.
+# Pass -o to choose the name yourself.
+OUTPUT_NAME = "%Y-%m-%d_%H-%M-%S"
 
 
 def listing(folder, extensions):
@@ -96,6 +105,19 @@ def discover():
     return transcripts[0], IMAGES, audio
 
 
+def chosen_output(passed):
+    """The output path the user asked for on the command line, if any."""
+    for index, item in enumerate(passed):
+        if item in ("-o", "--output"):
+            return passed[index + 1] if index + 1 < len(passed) else None
+        if item.startswith("--output="):
+            return item.split("=", 1)[1]
+        # argparse also accepts a short option glued to its value.
+        if item.startswith("-o") and len(item) > 2 and not item.startswith("--"):
+            return item[2:]
+    return None
+
+
 def run():
     print()
     print("  img2vid")
@@ -107,8 +129,12 @@ def run():
         return 2
     transcript, images, audio = found
 
-    name = os.path.splitext(os.path.basename(transcript))[0]
-    output = os.path.join(OUTPUT, name + ".mp4")
+    passed = sys.argv[1:]
+    # An -o on the command line wins, because it is appended after this one and
+    # argparse keeps the last. Read it here too, so the line printed below is
+    # the file that will actually be written rather than the name we made up.
+    output = chosen_output(passed) or os.path.join(
+        OUTPUT, time.strftime(OUTPUT_NAME) + ".mp4")
 
     print("  transcript : %s" % os.path.relpath(transcript, ROOT))
     print("  images     : %s (%d files)" % (os.path.relpath(images, ROOT),
@@ -119,7 +145,6 @@ def run():
     print(flush=True)
 
     argv = ["-t", transcript, "-i", images, "-a", *audio, "-o", output]
-    passed = sys.argv[1:]
 
     from i2v.render import RenderError  # noqa: PLC0415
 
@@ -127,7 +152,7 @@ def run():
         return main(argv + passed)
     except RenderError as error:
         # Double clicking leaves no way to add a flag, so offer it here instead
-        # of making the user edit Run.bat and start over.
+        # of making the user edit Create Video.bat and start over.
         if "--force" in passed or not _can_prompt():
             raise
         print()
