@@ -141,6 +141,15 @@ The batch files are named for what they do, in workflow order, on the user's ins
   passes, because a single reversed sort would also reverse the tie break and scramble
   files that share a timestamp. Copying a folder stamps every file with the same second,
   so ties are the normal case here, not an edge case.
+- **The trap that made this worth building.** The user's 137 images all had distinct
+  creation times, 8 milliseconds apart, in alphabetical order, because a batch copy
+  writes files alphabetically. `--by created` replayed that faithfully, and alphabetical
+  puts `100_` before `10_` since a digit sorts before an underscore, so image 10 landed
+  at 020. Nothing was broken: `natural_key` was correct, the sort was correct, the
+  default was simply wrong for that folder. `numbered_hint()` now detects it, when four
+  fifths of the names start with a digit and the chosen order disagrees with natural
+  name order, and names the first position where they diverge. It stays quiet on
+  `--by name`, on folders whose names are not numbered, and when the orders agree.
 - `random` reports the seed it picked when none was given. A shuffle nobody can repeat
   is one you cannot get back to, and `--undo` is not always what you want. `--seed`
   makes it reproducible, which is also what makes it testable.

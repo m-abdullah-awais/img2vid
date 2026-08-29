@@ -503,7 +503,34 @@ def undo(wanted=None, force=False):
     return 0 if (restored or removed) else 1
 
 
-def report(folder, pairs, order, entries=None):
+def numbered_hint(entries, order):
+    """Say so when the filenames already carry an order this run is ignoring.
+
+    A batch of images copied into a folder is written alphabetically, which
+    stamps the creation times in alphabetical order, milliseconds apart. So
+    --by created faithfully replays a copy order, and alphabetical puts 100
+    before 10 because a digit sorts before an underscore. The result looks like
+    the folder was shuffled, when the names were already right and only needed
+    --by name. Only raised when the names really are numbered and the chosen
+    order really does disagree, so it stays quiet on ordinary folders.
+    """
+    if order == "name" or len(entries) < 3:
+        return None
+    numbered = sum(1 for entry in entries if entry["name"][:1].isdigit())
+    if numbered < len(entries) * 0.8:
+        return None
+    current = [entry["name"] for entry in entries]
+    natural = sorted(current, key=natural_key)
+    for index, (now, wanted) in enumerate(zip(current, natural), start=1):
+        # The first place the two disagree, which is the one worth showing. The
+        # front of the list usually matches, so naming the first file would say
+        # nothing about what is actually different.
+        if now != wanted:
+            return index, now, wanted
+    return None
+
+
+def report(folder, pairs, order, entries=None, hint=None):
     changing = [(old, new) for old, new in pairs if old != new]
     labels, added = {}, {}
     for index, entry in enumerate(entries or []):
@@ -514,6 +541,17 @@ def report(folder, pairs, order, entries=None):
     print("  folder    : %s" % _shown(folder))
     print("  images    : %d" % len(pairs))
     print("  order     : %s" % order)
+    if hint:
+        number, now, wanted = hint
+        print()
+        print("  [!] these filenames already start with numbers, and this order")
+        print("      does not follow them. At %d it has" % number)
+        print("        %s" % _clipped(now, 60))
+        print("      where --by name would have")
+        print("        %s" % _clipped(wanted, 60))
+        print("      A batch of images is copied in alphabetically, which stamps")
+        print("      the creation times in that order, and alphabetical sorts")
+        print("      100 before 10.")
     if added:
         print()
         print("  inserting :")
@@ -609,7 +647,8 @@ def main(argv=None):
         entries = place(entries, staged, positions)
 
     pairs = plan(entries, max(1, args.digits), args.start)
-    changing = report(folder, pairs, order_label(order, desc, seed), entries)
+    changing = report(folder, pairs, order_label(order, desc, seed), entries,
+                      numbered_hint(entries, order))
 
     if not changing:
         discard_staged(folder, staged)

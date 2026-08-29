@@ -478,6 +478,23 @@ file arrived on this machine, so copying a folder stamps everything with the tim
 copy. When that has happened, `--by modified` is usually closer to the truth, and
 `--by name` is exact if the names already carry the order.
 
+There is a specific trap here worth knowing about. A batch of images is copied in
+alphabetically, which stamps the creation times in alphabetical order milliseconds
+apart, and alphabetical puts `100_` before `10_`, because a digit sorts before an
+underscore. So `--by created` faithfully replays a copy order that was never the order
+you wanted. When the filenames start with numbers and the chosen order does not follow
+them, the run says so and names the first place the two disagree:
+
+```
+  [!] these filenames already start with numbers, and this order
+      does not follow them. At 10 it has
+        100_[00-06-04_-_00-06-08]_Han.jpg
+      where --by name would have
+        10_River_level_illustration.jpeg
+```
+
+If you see that, `--by name` is almost certainly what you want.
+
 Files sharing a timestamp are ordered by filename, and that tie break stays A to Z even
 under `--desc`, so reversing the order does not scramble the files that were tied.
 
