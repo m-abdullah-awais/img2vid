@@ -5,7 +5,8 @@ cd /d "%~dp0"
 rem ==========================================================================
 rem  img2vid setup.
 rem
-rem  Run this once on a new machine, then use Run.bat.
+rem  Run this once on a new machine, then use Transcribe Audio.bat and
+rem  Create Video.bat.
 rem
 rem  Nothing is installed system wide. Anything this script has to fetch goes
 rem  inside this project folder and is removed if you delete the folder.
@@ -62,8 +63,7 @@ rem  Only when it was double clicked. Started from a terminal or another script
 rem  it is deliberate and goes straight through, which keeps it usable from a
 rem  command line and in automation. --check changes nothing, so it never asks.
 rem
-rem  The answer has to be typed. Pressing Enter, closing the window, or letting
-rem  a stray keypress land all cancel, which is the point.
+rem  Closing the window cancels, and so does typing N.
 rem --------------------------------------------------------------------------
 if not defined HOLD goto :confirmed
 if defined CHECK_ONLY goto :confirmed
@@ -84,10 +84,9 @@ echo   Nothing is installed system wide, and nothing outside this folder
 echo   is touched. Deleting the folder removes every trace.
 echo.
 set "GO="
-set /p "GO=  Type Y then Enter to start, or just press Enter to cancel:  "
-if /i "%GO%"=="Y" goto :confirmed
-if /i "%GO%"=="YES" goto :confirmed
-goto :cancelled
+set /p "GO=  Press Enter to start, or type N then Enter to cancel:  "
+if /i "%GO%"=="N" goto :cancelled
+if /i "%GO%"=="NO" goto :cancelled
 :confirmed
 
 echo.

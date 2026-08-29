@@ -115,13 +115,13 @@ writes while it works, which makes it slower and can lock files mid render.
 3. If Windows shows a blue box saying *"Windows protected your PC"*, click
    **More info**, then **Run anyway**. Windows shows this for any script downloaded
    from the internet. Step 1 point 4 usually prevents it.
-4. A black window opens and explains what it is about to do. Type `Y` and press
-   **Enter** to start. Pressing Enter on its own cancels and changes nothing.
+4. A black window opens and explains what it is about to do. Press **Enter** to
+   start, or type `N` and press Enter to cancel.
 5. It reports progress as it goes. Leave it alone and let it finish.
 
-**Every one of the four batch files asks first.** Opening one by mistake, or out of
-curiosity, does nothing at all until you type `Y`. Closing the window, pressing Enter,
-or walking away all cancel safely.
+**Every one of the four batch files asks first**, and tells you what it is about to do
+before it does it. Nothing happens until you answer, so opening one out of curiosity
+costs nothing: read the summary, then close the window or type `N`.
 
 The first run downloads up to about 280 MB and takes a few minutes on a normal
 connection. It only downloads what your machine is actually missing, so if you already
@@ -154,9 +154,9 @@ joined into one continuous recording.
 
 ### Step 4: Run Transcribe Audio.bat
 
-Double click **Transcribe Audio.bat**, then type `Y` and press **Enter** when it asks.
-It listens to your narration and writes down what is said and exactly when, entirely on
-your computer.
+Double click **Transcribe Audio.bat** and press **Enter** when it asks. It listens to
+your narration and writes down what is said and exactly when, entirely on your
+computer.
 
 Expect roughly one minute of processing for every eight minutes of audio. A progress
 bar shows how far along it is.
@@ -193,9 +193,9 @@ If you end up with the wrong number of images, that is fine and recoverable. See
 
 ### Step 6: Run Create Video.bat
 
-Double click **Create Video.bat**, then type `Y` and press **Enter** when it asks. A
-progress bar runs while it works. A ten minute video takes roughly 90 to 110 seconds on
-an average machine.
+Double click **Create Video.bat** and press **Enter** when it asks. A progress bar runs
+while it works. A ten minute video takes roughly 90 to 110 seconds on an average
+machine.
 
 ```
   done in 96.4s  ->  output\2026-08-29_14-30-22.mp4  (78.2 MB, 600.000s, 6.2x realtime)
@@ -374,7 +374,7 @@ Transcribe Audio.bat --model small --max-chars 90
 ## Create Video.bat
 
 Double click **Create Video.bat**. It says what it is about to build and waits for you
-to type `Y`, so opening it by accident does nothing. The first run creates the folders it
+for an answer, so opening it by accident does nothing. The first run creates the folders it
 needs and tells you what to put in them:
 
 ```
@@ -413,9 +413,14 @@ is built from the images in filename order, one per transcript line, so the name
 which image lands on which line. Camera and download names do not sort that way.
 
 Double click **Rename Images.bat**. It asks twice: once before it does anything at all,
-and again after it has shown you the exact list of renames. It shows what it is about to
-do, oldest file first by
-the date each one was created, and asks before changing anything:
+and again after it has shown you the exact list of renames. It offers two things:
+
+```
+    1) renumber them in order            (just press Enter)
+    2) insert an image at a number, then renumber
+```
+
+Option 1 puts everything in order, oldest file first by the date each one was created:
 
 ```
   rename images
@@ -429,7 +434,35 @@ the date each one was created, and asks before changing anything:
     scene 2.jpeg                             ->  003.jpeg
     ... and 83 more
 
-  Rename 86 files? [y/N]
+  Rename 86 files? [Y/n]
+```
+
+### Inserting an image
+
+Option 2 is for when the video is nearly right and one shot is missing, or one needs to
+move. It asks for the picture and the number it should take, then everything from that
+number on shifts up one and the whole folder is renumbered:
+
+```
+  Image to insert, or leave blank to finish:  C:\shots\the-missing-one.png
+  Put it at which number? 1 to 87:  5
+
+  inserting :
+    the-missing-one.png                      ->  005.png
+```
+
+You can give it a full path, drag the file into the window, or type the name of an image
+already in `input\images` to move it somewhere else in the order. Ask for more than one
+by answering again instead of leaving it blank.
+
+**An image from outside the folder is copied in, not moved**, so the original stays where
+you left it. `--undo` removes the copy again rather than leaving it behind under a name
+you never chose.
+
+On the command line the same thing is two flags, repeatable in pairs:
+
+```
+Rename Images.bat --insert "C:\shots\the-missing-one.png" --at 5
 ```
 
 Each file keeps its own extension, and anything in the folder that is not an image is
@@ -450,6 +483,7 @@ set "FLAGS=--undo"
 
 | flag | what it does |
 | --- | --- |
+| `--insert FILE --at N` | put an image in at number N, then renumber |
 | `--dry-run` | show the list and change nothing |
 | `--by modified` | order by date modified instead of date created |
 | `--by name` | order by the current filenames |

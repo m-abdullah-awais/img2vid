@@ -13,6 +13,17 @@ Those are put in the order they were created and renamed
 Each file keeps its own extension, and anything in the folder that is not an
 image is left alone. This is what Rename Images.bat calls.
 
+An image can also be dropped into the middle of the sequence. Put a new picture
+at number 5 and everything from 5 onward shifts up one, then the whole folder is
+renumbered:
+
+    python app\rename_images.py --insert "C:\shots\new.png" --at 5
+
+A file from outside is copied in, so the original stays where it was. A file
+already in the folder is moved within the order instead. Double clicking the
+batch file offers the same thing as a question, since there is nowhere to type
+a flag.
+
 Every run records what it did under temp\renames, so
 
     python app\rename_images.py --undo
@@ -44,6 +55,11 @@ PREVIEW = 20
 # The name a file holds between its old one and its new one.
 HALFWAY = "__renaming__"
 
+# The name a copied in image holds until the renumber gives it its real one.
+# It also marks the move in the record, so --undo deletes the copy instead of
+# renaming it back to a staging name that meant nothing to the user.
+INSERTED = "__inserted__"
+
 
 def build_parser():
     parser = argparse.ArgumentParser(
@@ -63,10 +79,144 @@ def build_parser():
                         help="show what would be renamed and change nothing")
     parser.add_argument("-y", "--yes", action="store_true",
                         help="do not ask for confirmation")
+    parser.add_argument("--insert", action="append", default=None, metavar="IMAGE",
+                        help="an image to put into the sequence, by path or by name."
+                             " Repeat it, once per --at")
+    parser.add_argument("--at", action="append", type=int, default=None, metavar="N",
+                        help="the number the image before it should end up at")
     parser.add_argument("--undo", nargs="?", const="", default=None, metavar="RECORD",
                         help="put back the names from the previous run, or from a named"
                              " record under temp\\renames")
     return parser
+
+
+def find_source(folder, given):
+    """Locate an image the user named, wherever they meant it.
+
+    Accepts a full path, a path relative to where they are, or a bare filename
+    that is already sitting in the images folder. Explorer and the console both
+    hand over dragged paths wrapped in quotes, so those come off first.
+    """
+    wanted = given.strip().strip('"').strip("'")
+    if not wanted:
+        return None, "no name given"
+    candidates = [wanted, os.path.join(folder, wanted)]
+    for candidate in candidates:
+        path = os.path.abspath(candidate)
+        if os.path.isfile(path):
+            if not path.lower().endswith(IMAGE_EXTENSIONS):
+                return None, "%s is not an image" % os.path.basename(path)
+            return path, None
+    return None, "cannot find %s" % wanted
+
+
+def stage_inserts(folder, sources):
+    """Bring each image into the folder under a name nothing else is using.
+
+    A file that already lives in the folder is left where it is and only moved
+    in the ordering. One from anywhere else is copied rather than moved, so the
+    user's original is still where they left it.
+    """
+    import shutil  # noqa: PLC0415
+
+    staged = []
+    for path in sources:
+        inside = os.path.dirname(path).lower() == folder.lower()
+        if inside:
+            staged.append({"name": os.path.basename(path), "label": os.path.basename(path),
+                           "copied": False})
+            continue
+        extension = os.path.splitext(path)[1]
+        # Not free_name, which prefixes with HALFWAY. The INSERTED prefix is what
+        # tells --undo this file was copied in and should be deleted, not renamed.
+        name = INSERTED + "%d%s" % (len(staged), extension)
+        counter = 2
+        while os.path.exists(os.path.join(folder, name)):
+            name = INSERTED + "%d_%d%s" % (len(staged), counter, extension)
+            counter += 1
+        shutil.copy2(path, os.path.join(folder, name))
+        staged.append({"name": name, "label": os.path.basename(path), "copied": True})
+    return staged
+
+
+def place(entries, staged, positions):
+    """Put each staged image at the number the user asked for.
+
+    Positions are the numbers shown to the user, so 1 is the first image. They
+    are applied in the order given, and each one is clamped to the sequence as
+    it stands at that moment, so asking for 99 in a folder of 20 appends.
+    """
+    ordered = [dict(entry) for entry in entries]
+    for item, wanted in zip(staged, positions):
+        # A file already in the folder is being moved, not added, so it has to
+        # come out of its old place before it goes into the new one.
+        ordered = [entry for entry in ordered if entry["name"] != item["name"]]
+        index = max(0, min(len(ordered), wanted - 1))
+        ordered.insert(index, {"name": item["name"], "label": item["label"],
+                               "inserted": True, "created": 0, "modified": 0,
+                               "key": natural_key(item["name"])})
+    return ordered
+
+
+def ask_for_inserts(folder, count):
+    """Offer the choice between a plain renumber and putting images in first.
+
+    A double click has nowhere to type a flag, so the options are offered here.
+    Answering nothing is the ordinary renumber, which is what almost every run
+    wants.
+    """
+    print("  images    : %d in %s" % (count, _shown(folder)))
+    print()
+    print("    1) renumber them in order            (just press Enter)")
+    print("    2) insert an image at a number, then renumber")
+    print()
+    try:
+        choice = input("  Choose 1 or 2 [1]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return [], []
+    if choice != "2":
+        return [], []
+
+    inserts, positions = [], []
+    while True:
+        total = count + len(inserts) + 1
+        print()
+        try:
+            given = input("  Image to insert, or leave blank to finish: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not given:
+            break
+        path, problem = find_source(folder, given)
+        if problem:
+            print("  %s" % problem)
+            continue
+        try:
+            where = input("  Put it at which number? 1 to %d: " % total).strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not where.isdigit() or int(where) < 1:
+            print("  That is not a number, so it was skipped.")
+            continue
+        inserts.append(path)
+        positions.append(min(int(where), total))
+        print("  %s becomes number %d" % (os.path.basename(path), positions[-1]))
+    print()
+    return inserts, positions
+
+
+def discard_staged(folder, staged):
+    """Remove the copies made for an insert that is not going ahead."""
+    for item in staged:
+        if not item.get("copied"):
+            continue
+        try:
+            os.remove(os.path.join(folder, item["name"]))
+        except OSError:
+            pass
 
 
 def collect(folder, order):
@@ -75,6 +225,10 @@ def collect(folder, order):
     for name in os.listdir(folder):
         path = os.path.join(folder, name)
         if not os.path.isfile(path) or not name.lower().endswith(IMAGE_EXTENSIONS):
+            continue
+        # A staging name only exists mid run, or after a hard kill during one.
+        # Numbering it as though it were content would bake the accident in.
+        if name.startswith(HALFWAY) or name.startswith(INSERTED):
             continue
         stat = os.stat(path)
         # st_ctime is the creation time on Windows, the one Explorer shows as
@@ -168,15 +322,25 @@ def _restored(folder):
 
 
 def newest_log():
-    """The most recent record that has not been undone already."""
+    """The most recent record that has not been undone already.
+
+    Ordered by when the file was written, not by its name. Two runs in the same
+    second produce 20260829-075435.json and 20260829-075435-2.json, and sorting
+    those as text puts the second one first, because a hyphen sorts before a
+    dot. That handed --undo the older record, which it then applied to a folder
+    that had moved on.
+    """
     if not os.path.isdir(LOGS):
         return None
-    names = sorted(name for name in os.listdir(LOGS) if name.endswith(".json")
-                   and not name.endswith(".undone.json"))
-    return os.path.join(LOGS, names[-1]) if names else None
+    names = [name for name in os.listdir(LOGS)
+             if name.endswith(".json") and not name.endswith(".undone.json")]
+    if not names:
+        return None
+    paths = [os.path.join(LOGS, name) for name in names]
+    return max(paths, key=lambda path: (os.path.getmtime(path), path))
 
 
-def undo(wanted=None):
+def undo(wanted=None, force=False):
     path = os.path.abspath(wanted) if wanted else newest_log()
     if not path or not os.path.isfile(path):
         print()
@@ -196,14 +360,44 @@ def undo(wanted=None):
     print("  folder    : %s" % _shown(folder))
     print()
 
+    # Check the whole record against the folder before touching any of it. A
+    # half applied undo is worse than none: it leaves the folder in a state that
+    # matches neither the record nor what the user had, and the second half of
+    # the record can no longer be trusted to fix it.
+    # Only the names the folder is meant to be resting on. Every rename went
+    # through a halfway name that is not supposed to exist once the run is over,
+    # so checking for those would report every healthy record as broken.
+    missing = [destination for _, destination in moves
+               if not destination.startswith(HALFWAY)
+               and not os.path.exists(os.path.join(folder, destination))]
+    if missing and not force:
+        print("  This record does not match the folder any more.")
+        print("  %d of %d files it expects are not there, starting with %s."
+              % (len(missing), len(moves), missing[0]))
+        print()
+        print("  Nothing was changed. The folder was probably renamed again since,")
+        print("  or these files were moved by hand. Undo the most recent run first,")
+        print("  or name the record you want:")
+        print("    Rename Images.bat --undo temp\\renames\\<record>.json")
+        print("  Add --yes to undo as much of this record as still applies.")
+        print()
+        return 2
+
     # Backwards, because the forward moves went through temporary names and the
     # last one out of a name has to be the first one back into it.
     restored = 0
+    removed = 0
     for source, destination in reversed(moves):
         current = os.path.join(folder, destination)
         original = os.path.join(folder, source)
         if not os.path.exists(current):
             print("  [!] %s is no longer there, skipped" % destination)
+            continue
+        # An image this run copied in has no earlier name to go back to. Putting
+        # the folder back as it was means removing the copy.
+        if source.startswith(INSERTED):
+            os.remove(current)
+            removed += 1
             continue
         if os.path.exists(original):
             print("  [!] %s is taken, skipped" % source)
@@ -215,22 +409,38 @@ def undo(wanted=None):
             restored += 1
 
     os.rename(path, path[:-len(".json")] + ".undone.json")
-    wanted = sum(1 for source, _ in moves if not source.startswith(HALFWAY))
+    wanted = sum(1 for source, _ in moves
+                 if not source.startswith(HALFWAY) and not source.startswith(INSERTED))
     print("  put back %d of %d names" % (restored, wanted))
+    if removed:
+        print("  removed %d image(s) that run had inserted" % removed)
     print()
-    return 0 if restored else 1
+    return 0 if (restored or removed) else 1
 
 
-def report(folder, pairs, order):
+def report(folder, pairs, order, entries=None):
     changing = [(old, new) for old, new in pairs if old != new]
+    labels, added = {}, {}
+    for index, entry in enumerate(entries or []):
+        labels[entry["name"]] = entry.get("label", entry["name"])
+        if entry.get("inserted"):
+            added[entry["name"]] = pairs[index][1]
+
     print("  folder    : %s" % _shown(folder))
     print("  images    : %d" % len(pairs))
     print("  order     : %s" % {"created": "date created, oldest first",
                                 "modified": "date modified, oldest first",
                                 "name": "filename"}[order])
+    if added:
+        print()
+        print("  inserting :")
+        # Always listed in full, never clipped to PREVIEW. An image going in at
+        # 150 would otherwise scroll off and the user would approve it unseen.
+        for name, number in added.items():
+            print("    %-40s ->  %s" % (_clipped(labels.get(name, name), 40), number))
     print()
     for old, new in changing[:PREVIEW]:
-        print("    %-40s ->  %s" % (_clipped(old, 40), new))
+        print("    %-40s ->  %s" % (_clipped(labels.get(old, old), 40), new))
     if len(changing) > PREVIEW:
         print("    ... and %d more" % (len(changing) - PREVIEW))
     print()
@@ -267,7 +477,7 @@ def main(argv=None):
     print("  " + "-" * 60)
 
     if args.undo is not None:
-        return undo(args.undo or None)
+        return undo(args.undo or None, force=args.yes)
 
     folder = os.path.abspath(args.folder)
     # Made rather than reported missing, for the same reason the step files make
@@ -275,29 +485,58 @@ def main(argv=None):
     os.makedirs(folder, exist_ok=True)
 
     entries = collect(folder, args.by)
-    if not entries:
+
+    inserts, positions = args.insert or [], args.at or []
+    if not inserts and not args.dry_run and not args.yes and _can_prompt():
+        inserts, positions = ask_for_inserts(folder, len(entries))
+    if len(inserts) != len(positions):
+        print()
+        print("  --insert and --at come in pairs, one --at for each --insert.")
+        print("  Given %d image(s) and %d position(s)." % (len(inserts), len(positions)))
+        print()
+        return 2
+
+    if not entries and not inserts:
         explain_setup(folder)
         return 2
 
+    sources = []
+    for given in inserts:
+        path, problem = find_source(folder, given)
+        if problem:
+            print()
+            print("  %s" % problem)
+            print()
+            return 2
+        sources.append(path)
+
+    staged = stage_inserts(folder, sources) if sources else []
+    if staged:
+        entries = place(entries, staged, positions)
+
     pairs = plan(entries, max(1, args.digits), args.start)
-    changing = report(folder, pairs, args.by)
+    changing = report(folder, pairs, args.by, entries)
 
     if not changing:
+        discard_staged(folder, staged)
         print("  Already numbered in that order. Nothing to do.")
         print()
         return 0
 
     if args.dry_run:
+        discard_staged(folder, staged)
         print("  Nothing was renamed, this was --dry-run.")
         print()
         return 0
 
     if not args.yes:
         if not _can_prompt():
+            discard_staged(folder, staged)
             print("  Add --yes to rename without a question to answer.")
             print()
             return 2
-        if not _confirm("  Rename %d files?" % len(changing)):
+        if not _confirm("  Rename %d files?" % len(changing), default_yes=True):
+            discard_staged(folder, staged)
             print("  Nothing was renamed.")
             print()
             return 2

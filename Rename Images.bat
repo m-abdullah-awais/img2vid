@@ -23,6 +23,8 @@ rem  asks before changing anything, and the previous names can be put back.
 rem
 rem  Options. Put any flags you always want between the quotes below.
 rem
+rem    --insert FILE --at 5   put an image in at number 5, then renumber.
+rem                   Repeat the pair to insert more than one.
 rem    --dry-run      show what would be renamed and change nothing
 rem    --by modified  order by date modified instead of date created
 rem    --by name      order by the current filenames
@@ -42,8 +44,8 @@ echo %cmdcmdline% | find /i "%~nx0" >nul && set "HOLD=1"
 rem --------------------------------------------------------------------------
 rem  Ask before doing anything, so opening this by mistake costs nothing.
 rem  This one renames your files, so it matters most here. There is a second
-rem  question later, after the exact list of renames has been printed. This
-rem  first one is only about whether you meant to open it at all.
+rem  question later, after the exact list of renames has been printed, so
+rem  nothing moves until you have seen exactly what will move.
 rem --------------------------------------------------------------------------
 if not defined HOLD goto :confirmed
 echo.
@@ -56,15 +58,18 @@ echo.
 echo     IMG_20260401_182233.jpg  -^>  001.jpg
 echo     screenshot ^(10^).png      -^>  002.png
 echo.
+echo   It can also drop a new image into the middle: give it the
+echo   picture and the number it should take, and everything from
+echo   there shifts up.
+echo.
 echo   It shows you the full list and asks again before renaming
 echo   anything, and the old names can be put back with --undo.
 echo   Only input\images is touched.
 echo.
 set "GO="
-set /p "GO=  Type Y then Enter to continue, or just press Enter to cancel:  "
-if /i "%GO%"=="Y" goto :confirmed
-if /i "%GO%"=="YES" goto :confirmed
-goto :cancelled
+set /p "GO=  Press Enter to continue, or type N then Enter to cancel:  "
+if /i "%GO%"=="N" goto :cancelled
+if /i "%GO%"=="NO" goto :cancelled
 :confirmed
 
 rem Find a Python. The private copy that Setup.bat may have unpacked wins, so a

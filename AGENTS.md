@@ -132,6 +132,30 @@ The batch files are named for what they do, in workflow order, on the user's ins
   including the shipped copy one, which proves `app\setup_check.py` resolves from a
   `git ls-files` copy.
 
+## Inserting An Image
+
+- `--insert IMAGE --at N`, repeatable in pairs, asked for on 2026-08-29. Everything from
+  N onward shifts up one and the whole folder is renumbered. Double clicking offers the
+  same thing as a menu, because there is nowhere to type a flag: Enter is the ordinary
+  renumber, `2` starts the insert questions.
+- An image from outside the folder is **copied**, not moved, so the user's original stays
+  where they left it. One already in the folder is only moved within the ordering.
+- The copy lands under an `__inserted__` staging name until the renumber gives it its
+  real one. That prefix is what tells `--undo` to delete the copy rather than rename it
+  back to a staging name the user never chose. `collect()` skips both staging prefixes so
+  a leftover from a killed run is never numbered as though it were content, and every
+  path that does not apply the plan calls `discard_staged()`.
+- Two bugs found while testing this, both in code that predates it:
+  - `newest_log()` sorted records as text, so two runs in the same second gave
+    `20260829-075435.json` and `20260829-075435-2.json`, and a hyphen sorts before a dot.
+    `names[-1]` therefore returned the **older** record. `--undo` then applied a stale
+    record to a folder that had moved on and left it mangled. Now ordered by mtime.
+  - `--undo` applied a record move by move, so a record that no longer matched the folder
+    got half applied, which is worse than refusing: the folder then matches neither the
+    record nor what the user had. It now checks every destination up front and changes
+    nothing unless they are all there, with `--yes` to override. The check has to skip
+    `HALFWAY` destinations, which are not supposed to exist at rest.
+
 ## Renaming Images
 
 - `Rename Images.bat` and `rename_images.py`, asked for on 2026-08-24: renumber
@@ -184,6 +208,13 @@ The batch files are named for what they do, in workflow order, on the user's ins
   noticed. Any `>`, `<`, `|` or `&` in an `echo` line needs a `^` in front of it, the
   same as the `(` and `)` already escaped there. Grep for it after writing any echo
   block: `grep -n "^echo " *.bat | grep -E "[^^][><|&]"`.
+- The confirmation was flipped on 2026-08-29, on the user's instruction: Enter now
+  continues and `N` cancels, rather than `Y` continuing and Enter cancelling. It still
+  shows what it is about to do first, and closing the window still cancels, so an
+  accidental open is harmless. A stray Enter now proceeds, which is the cost of the
+  flip and was the user's call. `_confirm` grew a `default_yes` for the same reason.
+  The one prompt deliberately left at `[y/N]` is the force question in `run.py`, since
+  Enter there would silently build a video from mismatched inputs.
 - `Setup.bat --check` never asks, since it changes nothing.
 - The `:cancelled` label sits after `exit /b`, so the normal path cannot fall into it.
 

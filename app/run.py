@@ -173,12 +173,21 @@ def _can_prompt():
         return False
 
 
-def _confirm(question):
+def _confirm(question, default_yes=False):
+    """Ask a yes or no question. The capital letter is what Enter does.
+
+    default_yes is for the questions that only confirm the thing the user
+    already asked for. It stays off for anything that overrides a check, where
+    Enter has to mean no.
+    """
+    prompt = "%s [Y/n] " if default_yes else "%s [y/N] "
     try:
-        answer = input("%s [y/N] " % question)
+        answer = input(prompt % question).strip().lower()
     except (EOFError, KeyboardInterrupt):
         return False
-    return answer.strip().lower() in ("y", "yes")
+    if not answer:
+        return default_yes
+    return answer in ("y", "yes")
 
 
 if __name__ == "__main__":

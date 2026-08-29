@@ -43,8 +43,8 @@ echo %cmdcmdline% | find /i "%~nx0" >nul && set "HOLD=1"
 rem --------------------------------------------------------------------------
 rem  Ask before doing anything, so opening this by mistake costs nothing.
 rem  Only when it was double clicked. From a terminal or a script it is
-rem  deliberate and goes straight through. The answer has to be typed, so a
-rem  stray keypress or a closed window cancels.
+rem  deliberate and goes straight through, so automation is unaffected. Closing
+rem  the window cancels, and so does typing N.
 rem --------------------------------------------------------------------------
 if not defined HOLD goto :confirmed
 echo.
@@ -65,10 +65,9 @@ echo   about a minute of work for every eight minutes of audio, and
 echo   most of the processor to be busy while it runs.
 echo.
 set "GO="
-set /p "GO=  Type Y then Enter to start, or just press Enter to cancel:  "
-if /i "%GO%"=="Y" goto :confirmed
-if /i "%GO%"=="YES" goto :confirmed
-goto :cancelled
+set /p "GO=  Press Enter to start, or type N then Enter to cancel:  "
+if /i "%GO%"=="N" goto :cancelled
+if /i "%GO%"=="NO" goto :cancelled
 :confirmed
 
 rem Find a Python. The private copy that Setup.bat may have unpacked wins, so a
