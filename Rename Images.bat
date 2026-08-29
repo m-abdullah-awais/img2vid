@@ -26,8 +26,13 @@ rem
 rem    --insert FILE --at 5   put an image in at number 5, then renumber.
 rem                   Repeat the pair to insert more than one.
 rem    --dry-run      show what would be renamed and change nothing
-rem    --by modified  order by date modified instead of date created
-rem    --by name      order by the current filenames
+rem    --by created   date created, oldest first. The default
+rem    --by modified  date modified, oldest first
+rem    --by name      filename, A to Z
+rem    --by size      file size, smallest first
+rem    --by type      file type, then filename
+rem    --by random    shuffle. --seed 7 repeats the same shuffle
+rem    --desc         reverse whichever order you picked
 rem    --start 0      number from 000 instead of 001
 rem    --digits 1     name them 1, 2, 3 instead of 001, 002, 003
 rem    --undo         put back the names from the previous run
@@ -58,9 +63,10 @@ echo.
 echo     IMG_20260401_182233.jpg  -^>  001.jpg
 echo     screenshot ^(10^).png      -^>  002.png
 echo.
-echo   It can also drop a new image into the middle: give it the
-echo   picture and the number it should take, and everything from
-echo   there shifts up.
+echo   It can put them in a different order first, by date, name,
+echo   size, type or at random, forwards or backwards. It can also
+echo   drop a new image into the middle: give it the picture and the
+echo   number it should take, and everything from there shifts up.
 echo.
 echo   It shows you the full list and asks again before renaming
 echo   anything, and the old names can be put back with --undo.

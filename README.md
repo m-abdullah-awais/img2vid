@@ -416,8 +416,9 @@ Double click **Rename Images.bat**. It asks twice: once before it does anything 
 and again after it has shown you the exact list of renames. It offers two things:
 
 ```
-    1) renumber them in order            (just press Enter)
+    1) renumber them in this order       (just press Enter)
     2) insert an image at a number, then renumber
+    3) put them in a different order first
 ```
 
 Option 1 puts everything in order, oldest file first by the date each one was created:
@@ -435,6 +436,55 @@ Option 1 puts everything in order, oldest file first by the date each one was cr
     ... and 83 more
 
   Rename 86 files? [Y/n]
+```
+
+### Choosing the order
+
+Option 3 asks what to sort by, then whether to reverse it:
+
+```
+  Put them in order by:
+
+    1) created   date created, oldest first  (now)
+    2) modified  date modified, oldest first
+    3) name      filename, A to Z
+    4) size      file size, smallest first
+    5) type      file type, then filename
+    6) random    random shuffle
+
+  Choose 1 to 6 [1]:
+  Reverse it, so the last one becomes 001? [y/N]
+```
+
+| order | what it does | reversed |
+| --- | --- | --- |
+| `created` | date created, oldest first. The default | newest first |
+| `modified` | date modified, oldest first | newest first |
+| `name` | filename, A to Z, numerically aware so `2` sorts before `10` | Z to A |
+| `size` | file size, smallest first | largest first |
+| `type` | groups `.jpg` together, then `.png`, each group by name | groups reversed |
+| `random` | shuffle | no effect |
+
+On the command line that is `--by` and `--desc`:
+
+```
+Rename Images.bat --by modified --desc
+Rename Images.bat --by size
+Rename Images.bat --by random --seed 7
+```
+
+**Date created is not always the date the photo was taken.** Windows sets it to when the
+file arrived on this machine, so copying a folder stamps everything with the time of the
+copy. When that has happened, `--by modified` is usually closer to the truth, and
+`--by name` is exact if the names already carry the order.
+
+Files sharing a timestamp are ordered by filename, and that tie break stays A to Z even
+under `--desc`, so reversing the order does not scramble the files that were tied.
+
+A shuffle reports the seed it used, so an order you liked can be repeated:
+
+```
+  order     : random shuffle, seed 182913  (repeat it with --seed 182913)
 ```
 
 ### Inserting an image
@@ -483,6 +533,9 @@ set "FLAGS=--undo"
 
 | flag | what it does |
 | --- | --- |
+| `--by created\|modified\|name\|size\|type\|random` | what to put them in order by |
+| `--desc` | reverse whichever order you picked |
+| `--seed N` | repeat a particular shuffle |
 | `--insert FILE --at N` | put an image in at number N, then renumber |
 | `--dry-run` | show the list and change nothing |
 | `--by modified` | order by date modified instead of date created |

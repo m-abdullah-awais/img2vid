@@ -13,6 +13,12 @@ Those are put in the order they were created and renamed
 Each file keeps its own extension, and anything in the folder that is not an
 image is left alone. This is what Rename Images.bat calls.
 
+The order is not fixed. Sort by date created, date modified, filename, file
+size, file type or at random, forwards or reversed:
+
+    python app\rename_images.py --by size --desc
+    python app\rename_images.py --by random --seed 7
+
 An image can also be dropped into the middle of the sequence. Put a new picture
 at number 5 and everything from 5 onward shifts up one, then the whole folder is
 renumbered:
@@ -34,6 +40,7 @@ puts the previous names back.
 import argparse
 import json
 import os
+import random
 import sys
 import time
 
@@ -55,6 +62,26 @@ PREVIEW = 20
 # The name a file holds between its old one and its new one.
 HALFWAY = "__renaming__"
 
+# What a folder of images can be put in order by, and how each one reads when
+# it is reversed. Everything else in the file works off these keys, so adding an
+# order means adding a row here and a sort in collect().
+ORDERS = {
+    "created":  ("date created, oldest first",   "date created, newest first"),
+    "modified": ("date modified, oldest first",  "date modified, newest first"),
+    "name":     ("filename, A to Z",             "filename, Z to A"),
+    "size":     ("file size, smallest first",    "file size, largest first"),
+    "type":     ("file type, then filename",     "file type reversed, then filename"),
+    "random":   ("random shuffle",               "random shuffle"),
+}
+
+
+def order_label(order, desc, seed=None):
+    label = ORDERS[order][1 if desc else 0]
+    if order == "random" and seed is not None:
+        return "%s, seed %d  (repeat it with --seed %d)" % (label, seed, seed)
+    return label
+
+
 # The name a copied in image holds until the renumber gives it its real one.
 # It also marks the move in the record, so --undo deletes the copy instead of
 # renaming it back to a staging name that meant nothing to the user.
@@ -69,8 +96,12 @@ def build_parser():
     )
     parser.add_argument("-f", "--folder", default=IMAGES,
                         help="the folder to renumber")
-    parser.add_argument("--by", default="created", choices=("created", "modified", "name"),
+    parser.add_argument("--by", default="created", choices=tuple(ORDERS),
                         help="what to order the images by")
+    parser.add_argument("--desc", "--reverse", dest="desc", action="store_true",
+                        help="reverse it, so the last one becomes 001")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="the seed for --by random, so a shuffle can be repeated")
     parser.add_argument("--start", type=int, default=1,
                         help="the number the first image gets")
     parser.add_argument("--digits", type=int, default=3,
@@ -158,25 +189,67 @@ def place(entries, staged, positions):
     return ordered
 
 
-def ask_for_inserts(folder, count):
-    """Offer the choice between a plain renumber and putting images in first.
-
-    A double click has nowhere to type a flag, so the options are offered here.
-    Answering nothing is the ordinary renumber, which is what almost every run
-    wants.
-    """
-    print("  images    : %d in %s" % (count, _shown(folder)))
+def ask_for_order(order, desc):
+    """Ask what to put the images in order by, and which way round."""
+    keys = list(ORDERS)
     print()
-    print("    1) renumber them in order            (just press Enter)")
-    print("    2) insert an image at a number, then renumber")
+    print("  Put them in order by:")
+    print()
+    for index, key in enumerate(keys, start=1):
+        mark = "  (now)" if key == order else ""
+        print("    %d) %-9s %s%s" % (index, key, ORDERS[key][0], mark))
     print()
     try:
-        choice = input("  Choose 1 or 2 [1]: ").strip()
+        answer = input("  Choose 1 to %d [%d]: " % (len(keys), keys.index(order) + 1)).strip()
     except (EOFError, KeyboardInterrupt):
         print()
-        return [], []
-    if choice != "2":
-        return [], []
+        return order, desc
+    if answer.isdigit() and 1 <= int(answer) <= len(keys):
+        order = keys[int(answer) - 1]
+
+    if order == "random":
+        # There is no other way round a shuffle, so do not ask.
+        return order, False
+    return order, _confirm("  Reverse it, so the last one becomes 001?")
+
+
+def ask_what_to_do(folder, count, order, desc):
+    """Offer the things a double click cannot ask for on a command line.
+
+    Answering nothing is the ordinary renumber, which is what almost every run
+    wants, so the common case is still a single press of Enter.
+    """
+    print("  images    : %d in %s" % (count, _shown(folder)))
+    print("  order     : %s" % order_label(order, desc))
+    print()
+    print("    1) renumber them in this order       (just press Enter)")
+    print("    2) insert an image at a number, then renumber")
+    print("    3) put them in a different order first")
+    print()
+    try:
+        choice = input("  Choose 1, 2 or 3 [1]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return [], [], order, desc
+
+    if choice == "3":
+        order, desc = ask_for_order(order, desc)
+        print()
+        print("  order     : %s" % order_label(order, desc))
+        try:
+            if not _confirm("  Insert an image as well?"):
+                return [], [], order, desc
+        except (EOFError, KeyboardInterrupt):
+            return [], [], order, desc
+    elif choice != "2":
+        return [], [], order, desc
+
+    inserts, positions = _ask_for_inserts(folder, count)
+    return inserts, positions, order, desc
+
+
+def _ask_for_inserts(folder, count):
+    """Collect image and position pairs until the user stops giving them."""
 
     inserts, positions = [], []
     while True:
@@ -219,7 +292,7 @@ def discard_staged(folder, staged):
             pass
 
 
-def collect(folder, order):
+def collect(folder, order, desc=False, seed=None):
     """Every image in the folder, in the order it will be numbered."""
     entries = []
     for name in os.listdir(folder):
@@ -236,15 +309,27 @@ def collect(folder, order):
         # that was copied carries the time of the copy rather than the time the
         # picture was taken. --by modified is usually closer to that.
         entries.append({"name": name, "created": stat.st_ctime,
-                        "modified": stat.st_mtime, "key": natural_key(name)})
+                        "modified": stat.st_mtime, "size": stat.st_size,
+                        "type": os.path.splitext(name)[1].lower(),
+                        "key": natural_key(name)})
+
+    if order == "random":
+        # Seeded so a shuffle can be repeated. Without a seed the run picks one
+        # and prints it, because otherwise an order you liked is unrepeatable.
+        random.Random(seed).shuffle(entries)
+        return entries
 
     if order == "name":
-        entries.sort(key=lambda entry: entry["key"])
-    else:
-        # Copying a folder stamps every file inside it with the same time, often
-        # to the second, so the filename decides the order within a tie. Without
-        # that the result would depend on the order the folder happens to list.
-        entries.sort(key=lambda entry: (entry[order], entry["key"]))
+        entries.sort(key=lambda entry: entry["key"], reverse=desc)
+        return entries
+
+    # Copying a folder stamps every file inside it with the same time, often to
+    # the second, so the filename decides the order within a tie. Without that
+    # the result would depend on the order the folder happens to list. The tie
+    # break stays A to Z either way, so reversing the order does not scramble
+    # the files that share a timestamp.
+    entries.sort(key=lambda entry: entry["key"])
+    entries.sort(key=lambda entry: entry[order], reverse=desc)
     return entries
 
 
@@ -428,9 +513,7 @@ def report(folder, pairs, order, entries=None):
 
     print("  folder    : %s" % _shown(folder))
     print("  images    : %d" % len(pairs))
-    print("  order     : %s" % {"created": "date created, oldest first",
-                                "modified": "date modified, oldest first",
-                                "name": "filename"}[order])
+    print("  order     : %s" % order)
     if added:
         print()
         print("  inserting :")
@@ -484,11 +567,22 @@ def main(argv=None):
     # it: a folder the instructions point at should be there to be opened.
     os.makedirs(folder, exist_ok=True)
 
-    entries = collect(folder, args.by)
+    # A shuffle nobody can repeat is a shuffle you cannot go back to, so when no
+    # seed was given one is chosen here and reported with the result.
+    seed = args.seed
+    if args.by == "random" and seed is None:
+        seed = random.randrange(1, 1000000)
+
+    entries = collect(folder, args.by, args.desc, seed)
 
     inserts, positions = args.insert or [], args.at or []
+    order, desc = args.by, args.desc
     if not inserts and not args.dry_run and not args.yes and _can_prompt():
-        inserts, positions = ask_for_inserts(folder, len(entries))
+        inserts, positions, order, desc = ask_what_to_do(folder, len(entries), order, desc)
+        if (order, desc) != (args.by, args.desc):
+            if order == "random" and args.seed is None:
+                seed = random.randrange(1, 1000000)
+            entries = collect(folder, order, desc, seed)
     if len(inserts) != len(positions):
         print()
         print("  --insert and --at come in pairs, one --at for each --insert.")
@@ -515,7 +609,7 @@ def main(argv=None):
         entries = place(entries, staged, positions)
 
     pairs = plan(entries, max(1, args.digits), args.start)
-    changing = report(folder, pairs, args.by, entries)
+    changing = report(folder, pairs, order_label(order, desc, seed), entries)
 
     if not changing:
         discard_staged(folder, staged)
@@ -554,9 +648,20 @@ def main(argv=None):
         raise
 
     print("  renamed %d of %d images" % (renamed, len(pairs)))
-    if trail:
-        _undo_hint(write_log(folder, trail))
+    record = write_log(folder, trail) if trail else None
+    if record:
+        _undo_hint(record)
     print()
+
+    # Offered here, while the result is still on screen and the record is the
+    # newest one, so changing your mind costs one keypress instead of a flag.
+    # Enter leaves it alone, because that is what almost everyone wants.
+    if record and not args.yes and _can_prompt():
+        if _confirm("  Undo it and put the old names back?"):
+            print()
+            return undo(record)
+        print()
+
     print("  Next: run Create Video.bat")
     print()
     return 0

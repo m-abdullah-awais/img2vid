@@ -132,6 +132,26 @@ The batch files are named for what they do, in workflow order, on the user's ins
   including the shipped copy one, which proves `app\setup_check.py` resolves from a
   `git ls-files` copy.
 
+## Ordering Images
+
+- `--by created|modified|name|size|type|random` and `--desc`, asked for on 2026-08-29.
+  Everything works off the `ORDERS` dict, which holds the forward and reversed wording
+  for each key, so adding an order is a row there plus a sort in `collect()`.
+- Ties are sorted by filename first, then the real key is applied with `reverse=`. Two
+  passes, because a single reversed sort would also reverse the tie break and scramble
+  files that share a timestamp. Copying a folder stamps every file with the same second,
+  so ties are the normal case here, not an edge case.
+- `random` reports the seed it picked when none was given. A shuffle nobody can repeat
+  is one you cannot get back to, and `--undo` is not always what you want. `--seed`
+  makes it reproducible, which is also what makes it testable.
+- `random` never asks which way round, since there is no other way round a shuffle.
+- The interactive menu is now three way: Enter renumbers as is, `2` inserts, `3` changes
+  the order and then asks whether to insert as well. The common case is still one press
+  of Enter.
+- After a successful rename it offers `--undo` on the spot, defaulting to no. The result
+  is still on screen and the record is the newest one, so changing your mind costs a
+  keypress rather than a flag. Skipped under `--yes`, so automation never blocks.
+
 ## Inserting An Image
 
 - `--insert IMAGE --at N`, repeatable in pairs, asked for on 2026-08-29. Everything from
