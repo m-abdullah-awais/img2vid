@@ -1169,6 +1169,16 @@ The engine contains compiled extensions built for one CPython version. This happ
 after installing or removing a system Python, or after copying the folder from another
 machine. Run `Setup.bat` again and it reinstalls them for the interpreter now in use.
 
+**`429 Too Many Requests`** or **`we cannot find the appropriate snapshot folder`**
+The speech model has not finished downloading on this machine, and huggingface.co is
+rate limiting or unreachable. Nothing is wrong with your files. Either run `Setup.bat`
+again in a few minutes, which carries on from where it stopped, or copy the folder
+`runtime\whisper\models` across from a machine where it already works. That folder is
+the whole model, so a copied one needs no network at all.
+
+A model already on disk is never checked against the Hub, so once the download has
+finished on a machine this cannot happen there again.
+
 **`No speech was found in <file>`**
 The voice activity detector found nothing to transcribe. Check that the file really is
 narration rather than music, silence or a corrupt download, and that it plays.

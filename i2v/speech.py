@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import sys
+import time
 
 # Only the sizes that finish in reasonable time on a CPU. medium and large-v3
 # run slower than realtime on a 4 core laptop, which defeats the point.
@@ -34,6 +35,10 @@ WEIGHTS = "model.bin"
 # built for one CPython version, so a changed interpreter has to be caught here
 # and reported, rather than surfacing as a bare ImportError later on.
 VERSION_MARKER = ".python-version"
+
+# How long to wait between download attempts. The last entry is never slept on,
+# it only marks the final try, so this is three attempts over about 45 seconds.
+RETRY_WAITS = (5, 15, 30, 0)
 
 
 class SpeechError(RuntimeError):
@@ -144,15 +149,59 @@ def download(project_root, model=DEFAULT_MODEL, on_message=None):
         from huggingface_hub import snapshot_download  # noqa: PLC0415
     except ImportError as error:
         raise SpeechError("The speech engine is not installed correctly: %s" % error)
-    try:
-        snapshot_download(REPO % model, cache_dir=destination)
-    except Exception as error:  # noqa: BLE001 - network, disk, anything
-        raise SpeechError("Could not download %s: %s" % (REPO % model, error))
-    return destination
+
+    # A 429 from the Hub is a "come back shortly", not a refusal, and a dropped
+    # connection part way through a 140 MB download is ordinary. Both are worth
+    # waiting out rather than making the user run Setup again. Already finished
+    # files are skipped on the retry, so this resumes rather than restarts.
+    last = None
+    for attempt, pause in enumerate(RETRY_WAITS, start=1):
+        try:
+            snapshot_download(REPO % model, cache_dir=destination)
+            return destination
+        except Exception as error:  # noqa: BLE001 - network, disk, anything
+            last = error
+            if not network_problem(error) or attempt == len(RETRY_WAITS):
+                break
+            if on_message:
+                on_message("  %s, waiting %ds and trying again (%d of %d)"
+                           % (network_problem(error), pause, attempt, len(RETRY_WAITS) - 1))
+            time.sleep(pause)
+
+    problem = network_problem(last)
+    if problem:
+        raise SpeechError(
+            "Could not download the %s model, because %s.\n"
+            "  It is a one time download. Run Setup.bat again in a few minutes,\n"
+            "  it carries on from where it stopped." % (model, problem))
+    raise SpeechError("Could not download %s: %s" % (REPO % model, last))
+
+
+def network_problem(error):
+    """Name the network failure behind a HuggingFace error, if that is what it is.
+
+    Returned as something a user can read. Anything else is a real fault and is
+    passed through untouched rather than dressed up as a connection problem.
+    """
+    text = str(error)
+    if "429" in text or "Too Many Requests" in text:
+        return "huggingface.co is refusing downloads for now (429 Too Many Requests)"
+    for sign in ("ConnectionError", "Max retries", "getaddrinfo", "NewConnectionError",
+                 "Temporary failure", "timed out", "SSLError", "ProxyError"):
+        if sign in text:
+            return "huggingface.co could not be reached"
+    return None
 
 
 def load(project_root, model=DEFAULT_MODEL, compute_type="int8", cpu_threads=0):
-    """Load a model, preferring the local copy so a normal run never hits the network."""
+    """Load a model. A copy already on disk is used without touching the network.
+
+    Offline is tried first every single time, not only when model_is_local()
+    believes the weights are there. Asking the Hub whether a cached model is
+    still current turns a rate limit or a dropped connection into a failure on
+    a machine that already had everything it needed, which is the worst kind of
+    outage: avoidable, and nowhere near where the user thinks the fault is.
+    """
     if model not in MODEL_SIZES:
         raise SpeechError("Unknown model %r. Choose one of: %s"
                           % (model, ", ".join(MODEL_SIZES)))
@@ -164,17 +213,31 @@ def load(project_root, model=DEFAULT_MODEL, compute_type="int8", cpu_threads=0):
             "The speech engine is installed but will not import: %s\n"
             "  Run Setup.bat again to repair it." % error
         )
+
+    settings = {"device": "cpu", "compute_type": compute_type,
+                "cpu_threads": cpu_threads, "download_root": models_dir(project_root)}
     try:
-        return WhisperModel(
-            model,
-            device="cpu",
-            compute_type=compute_type,
-            cpu_threads=cpu_threads,
-            download_root=models_dir(project_root),
-            local_files_only=model_is_local(project_root, model),
-        )
+        return WhisperModel(model, local_files_only=True, **settings)
+    except Exception:  # noqa: BLE001 - simply not on disk yet, so go and fetch it
+        pass
+
+    try:
+        return WhisperModel(model, local_files_only=False, **settings)
     except Exception as error:  # noqa: BLE001
-        raise SpeechError("Could not load the %s model: %s" % (model, error))
+        problem = network_problem(error)
+        if not problem:
+            raise SpeechError("Could not load the %s model: %s" % (model, error))
+        raise SpeechError(
+            "The %s model is not on this machine yet, and %s.\n"
+            "\n"
+            "  Nothing is wrong with your files. The model is a one time download\n"
+            "  and it has not finished here yet.\n"
+            "\n"
+            "  Either wait a few minutes and run Setup.bat again, which carries on\n"
+            "  from where it stopped, or copy this folder from a machine where it\n"
+            "  already works:\n"
+            "    %s"
+            % (model, problem, models_dir(project_root)))
 
 
 def signature(paths, options):

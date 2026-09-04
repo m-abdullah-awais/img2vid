@@ -263,6 +263,17 @@ def main(argv=None):
         if raw is not None:
             print("  cached     : reusing an earlier transcription of this audio")
         else:
+            report = cli.make_progress(args.quiet)
+            notify = None if args.quiet else (lambda text: print(text, flush=True))
+
+            # Before the audio is touched, not after. Joining a dozen files takes
+            # half a minute, and finding out at the end of it that the model was
+            # never downloaded means that work is thrown away for nothing.
+            if not speech.model_is_local(ROOT, args.model):
+                print("  model      : %s is not on this machine yet, fetching it first"
+                      % args.model, flush=True)
+                speech.download(ROOT, args.model, on_message=notify)
+
             source = audio[0]
             if len(audio) > 1:
                 os.makedirs(job, exist_ok=True)
@@ -270,8 +281,6 @@ def main(argv=None):
                       flush=True)
                 source = join_audio(tools, audio, os.path.join(job, "narration.wav"))
 
-            report = cli.make_progress(args.quiet)
-            notify = None if args.quiet else (lambda text: print(text, flush=True))
             raw, info = speech.transcribe(
                 ROOT, source, duration=duration, model=args.model,
                 language=args.language, beam_size=args.beam,

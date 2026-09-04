@@ -132,6 +132,28 @@ The batch files are named for what they do, in workflow order, on the user's ins
   including the shipped copy one, which proves `app\setup_check.py` resolves from a
   `git ls-files` copy.
 
+## Model Download Failures
+
+- Reported from a second laptop on 2026-09-04: `429 Too Many Requests` for
+  `Systran/faster-whisper-base`, after it had already joined twelve audio files. Three
+  separate faults behind one error.
+- **`load()` asked the Hub about a model it may already have had.** It passed
+  `local_files_only=model_is_local(...)`, so any reason that helper returned False sent
+  it to the network, and a rate limit then broke a machine that needed no network at
+  all. It now tries `local_files_only=True` first, every time, and only goes online when
+  that fails. A cached model can no longer be taken down by an outage.
+- **A 429 was fatal on the first try.** It means "come back shortly", and a dropped
+  connection part way through 140 MB is ordinary, so `download()` now retries three
+  times over about 45 seconds. `snapshot_download` skips what already arrived, so a
+  retry resumes rather than restarts.
+- **The failure came after half a minute of wasted ffmpeg work.** `transcribe.py` now
+  fetches a missing model before it joins any audio.
+- `network_problem()` classifies the error so the message can say what to do. Anything
+  it does not recognise is passed through untouched rather than dressed up as a
+  connection fault.
+- Verified: `HF_HUB_OFFLINE=1` loads the base model, proving the offline path takes no
+  network, and a stubbed 429 produces the new message rather than the raw HfHubHTTPError.
+
 ## Ordering Images
 
 - `--by created|modified|name|size|type|random` and `--desc`, asked for on 2026-08-29.
