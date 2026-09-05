@@ -1177,10 +1177,21 @@ machine. Run `Setup.bat` again and it reinstalls them for the interpreter now in
 
 **`429 Too Many Requests`** or **`we cannot find the appropriate snapshot folder`**
 The speech model has not finished downloading on this machine, and huggingface.co is
-rate limiting or unreachable. Nothing is wrong with your files. Either run `Setup.bat`
-again in a few minutes, which carries on from where it stopped, or copy the folder
-`runtime\whisper\models` across from a machine where it already works. That folder is
-the whole model, so a copied one needs no network at all.
+rate limiting or unreachable. Nothing is wrong with your files, and the limit is on the
+network address rather than on the folder, so it clears on its own.
+
+It waits this out for you first, six attempts over about four minutes, honouring the
+delay huggingface.co asks for when it sends one. If it still fails you have two
+choices. Run `Setup.bat` again later, which carries on from where it stopped. Or copy
+the model across from a machine where it already works, which needs no network at all:
+take the folder
+
+```
+runtime\whisper\models\models--Systran--faster-whisper-base
+```
+
+from that machine and put it in the same place here. The failure message prints both
+paths, so you do not have to look them up.
 
 A model already on disk is never checked against the Hub, so once the download has
 finished on a machine this cannot happen there again.

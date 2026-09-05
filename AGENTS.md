@@ -143,9 +143,27 @@ The batch files are named for what they do, in workflow order, on the user's ins
   all. It now tries `local_files_only=True` first, every time, and only goes online when
   that fails. A cached model can no longer be taken down by an outage.
 - **A 429 was fatal on the first try.** It means "come back shortly", and a dropped
-  connection part way through 140 MB is ordinary, so `download()` now retries three
-  times over about 45 seconds. `snapshot_download` skips what already arrived, so a
-  retry resumes rather than restarts.
+  connection part way through 140 MB is ordinary, so `download()` retries rather than
+  giving up. `snapshot_download` skips what already arrived, so a retry resumes rather
+  than restarts.
+- **Forty five seconds was not long enough, reported 2026-09-05.** The same laptop hit
+  the same 429 again, exhausted all three tries inside a minute and stopped. A Hub rate
+  limit is counted in minutes, so the old schedule was really just the same wait with
+  more steps in it. `RETRY_WAITS` now runs 5, 15, 30, 60, 120, which is six attempts
+  over 3m 50s, and `retry_after()` reads the Hub's own `Retry-After` header when it
+  sends one. That number wins over the schedule, but only upwards: it is floored at the
+  scheduled pause so a `Retry-After: 1` cannot turn the loop into hammering, and capped
+  at `LONGEST_WAIT` so a large one cannot look like a hang. A header holding an HTTP
+  date rather than a count falls back to the schedule; parsing it is not worth the code.
+- **The message named no way out.** It said to run Setup.bat again in a few minutes,
+  which is the advice that had just failed. It now also names the exact folder to carry
+  over from a machine that already has the model, `models--Systran--faster-whisper-base`,
+  and the absolute path to drop it into. That is the one answer that always works, and
+  the README had it while the program did not. `cache_folder_name()` builds the name so
+  `model_is_local()` and the message cannot drift apart.
+- `network_problem()` reads `error.response.status_code` before falling back to looking
+  for "429" in the text. The substring could as easily be part of a byte count or a
+  request id as the status of a response.
 - **The failure came after half a minute of wasted ffmpeg work.** `transcribe.py` now
   fetches a missing model before it joins any audio.
 - `network_problem()` classifies the error so the message can say what to do. Anything

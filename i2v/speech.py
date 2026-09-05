@@ -37,8 +37,16 @@ WEIGHTS = "model.bin"
 VERSION_MARKER = ".python-version"
 
 # How long to wait between download attempts. The last entry is never slept on,
-# it only marks the final try, so this is three attempts over about 45 seconds.
-RETRY_WAITS = (5, 15, 30, 0)
+# it only marks the final try, so this is six attempts over about four minutes.
+# A rate limit on the Hub is measured in minutes, not seconds: the old schedule
+# stopped after 45 of them and told the user to run Setup again, which is the
+# same wait with more steps in it.
+RETRY_WAITS = (5, 15, 30, 60, 120, 0)
+
+# The Hub often says when to come back, in a Retry-After header, and its own
+# number beats any schedule guessed here. It is a value off the network though,
+# so it is capped: a large one would look like the run had hung.
+LONGEST_WAIT = 300
 
 
 class SpeechError(RuntimeError):
@@ -62,6 +70,16 @@ def python_tag():
     return "%d.%d" % sys.version_info[:2]
 
 
+def cache_folder_name(model):
+    """The folder HuggingFace keeps one model in, which is what a user copies.
+
+    Named once because two places need it: the check for weights already on
+    disk, and the message that tells a user which folder to carry over from a
+    machine that has them.
+    """
+    return "models--" + REPO.replace("/", "--") % model
+
+
 def model_is_local(project_root, model):
     """True when the weights are really on disk, so no network call is needed.
 
@@ -71,8 +89,7 @@ def model_is_local(project_root, model):
     never resumed, and every later run fails offline with an incomplete snapshot
     instead of simply finishing the job.
     """
-    folder = os.path.join(models_dir(project_root),
-                          "models--" + REPO.replace("/", "--") % model)
+    folder = os.path.join(models_dir(project_root), cache_folder_name(model))
     snapshots = os.path.join(folder, "snapshots")
     if not os.path.isdir(snapshots):
         return False
@@ -163,18 +180,61 @@ def download(project_root, model=DEFAULT_MODEL, on_message=None):
             last = error
             if not network_problem(error) or attempt == len(RETRY_WAITS):
                 break
+            # Never shorter than the schedule, never longer than the cap. The
+            # Hub asking for two seconds is not a reason to hammer it.
+            wait = max(pause, retry_after(error) or 0)
             if on_message:
-                on_message("  %s, waiting %ds and trying again (%d of %d)"
-                           % (network_problem(error), pause, attempt, len(RETRY_WAITS) - 1))
-            time.sleep(pause)
+                on_message("  %s, waiting %s and trying again (%d of %d)"
+                           % (network_problem(error), spelled(wait),
+                              attempt, len(RETRY_WAITS) - 1))
+            time.sleep(wait)
 
     problem = network_problem(last)
     if problem:
         raise SpeechError(
             "Could not download the %s model, because %s.\n"
-            "  It is a one time download. Run Setup.bat again in a few minutes,\n"
-            "  it carries on from where it stopped." % (model, problem))
+            "  It kept trying for about %s. A limit like this one is on the\n"
+            "  network address, not on this folder, and clears on its own.\n"
+            "\n"
+            "  Run Setup.bat again later. It is a one time download and it\n"
+            "  carries on from where it stopped.\n"
+            "\n"
+            "  Or take the model off a machine that already has it and skip\n"
+            "  the download altogether. Copy this whole folder\n"
+            "    %s\n"
+            "  from that machine into the same place here:\n"
+            "    %s"
+            % (model, problem, spelled(sum(RETRY_WAITS)),
+               cache_folder_name(model), destination))
     raise SpeechError("Could not download %s: %s" % (REPO % model, last))
+
+
+
+def retry_after(error):
+    """The wait the Hub asked for, in seconds, when it sent one.
+
+    Capped rather than trusted. The header is also allowed to hold an HTTP
+    date rather than a count of seconds, which is not worth parsing: the
+    schedule in RETRY_WAITS is a reasonable answer either way, and is what
+    the caller falls back on when this returns None.
+    """
+    response = getattr(error, "response", None)
+    headers = getattr(response, "headers", None)
+    if headers is None:
+        return None
+    try:
+        seconds = int(float(str(headers.get("retry-after", "")).strip()))
+    except (TypeError, ValueError):
+        return None
+    return max(0, min(seconds, LONGEST_WAIT))
+
+
+def spelled(seconds):
+    """A wait as a person would say it, so 120 reads as 2m rather than 120s."""
+    if seconds < 60:
+        return "%ds" % seconds
+    minutes, rest = divmod(int(seconds), 60)
+    return "%dm" % minutes if not rest else "%dm %ds" % (minutes, rest)
 
 
 def network_problem(error):
@@ -183,8 +243,12 @@ def network_problem(error):
     Returned as something a user can read. Anything else is a real fault and is
     passed through untouched rather than dressed up as a connection problem.
     """
+    # The status code when there is one, because it is exact. The text is only
+    # a fallback: "429" as a substring could as easily be part of a byte count
+    # or a request id as the status of the response.
+    status = getattr(getattr(error, "response", None), "status_code", None)
     text = str(error)
-    if "429" in text or "Too Many Requests" in text:
+    if status == 429 or "429" in text or "Too Many Requests" in text:
         return "huggingface.co is refusing downloads for now (429 Too Many Requests)"
     for sign in ("ConnectionError", "Max retries", "getaddrinfo", "NewConnectionError",
                  "Temporary failure", "timed out", "SSLError", "ProxyError"):
