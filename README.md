@@ -458,7 +458,7 @@ Option 3 asks what to sort by, then whether to reverse it:
 
 | order | what it does | reversed |
 | --- | --- | --- |
-| `created` | date created, oldest first. The default | newest first |
+| `created` | date created, oldest first. The default, unless the names are already numbered | newest first |
 | `modified` | date modified, oldest first | newest first |
 | `name` | filename, A to Z, numerically aware so `2` sorts before `10` | Z to A |
 | `size` | file size, smallest first | largest first |
@@ -478,22 +478,27 @@ file arrived on this machine, so copying a folder stamps everything with the tim
 copy. When that has happened, `--by modified` is usually closer to the truth, and
 `--by name` is exact if the names already carry the order.
 
-There is a specific trap here worth knowing about. A batch of images is copied in
-alphabetically, which stamps the creation times in alphabetical order milliseconds
-apart, and alphabetical puts `100_` before `10_`, because a digit sorts before an
-underscore. So `--by created` faithfully replays a copy order that was never the order
-you wanted. When the filenames start with numbers and the chosen order does not follow
-them, the run says so and names the first place the two disagree:
+There is a specific trap here worth knowing about. A folder copied in one go is written
+in a single burst, which stamps the creation times milliseconds apart in whatever order
+the copy happened to run, and that order is not always the one you would guess. A copy
+that runs backwards makes `170.jpg` the oldest file in the folder, so `--by created`
+faithfully replays it and renames `170.jpg` to `001.jpg`, reversing everything.
+
+So filenames that are already numbered win. Those names are an order somebody chose, and
+a copy date is not. When the default would disagree with them, the run keeps the names
+and says why:
 
 ```
-  [!] these filenames already start with numbers, and this order
-      does not follow them. At 10 it has
-        100_[00-06-04_-_00-06-08]_Han.jpg
-      where --by name would have
-        10_River_level_illustration.jpeg
+  [i] these filenames are already numbered, so that order was kept.
+      date created, oldest first would have started with
+        170.jpg
+      A folder copied in one go is stamped with the time of the copy,
+      not the time the pictures were taken, and a copy can run in any
+      order. Add --by created to sort by date anyway.
 ```
 
-If you see that, `--by name` is almost certainly what you want.
+That only overrules a default nobody asked for. Type `--by created` and you get date
+order, with a `[!]` warning naming the first place it disagrees with the names.
 
 Files sharing a timestamp are ordered by filename, and that tie break stays A to Z even
 under `--desc`, so reversing the order does not scramble the files that were tied.
@@ -556,6 +561,7 @@ set "FLAGS=--undo"
 | `--insert FILE --at N` | put an image in at number N, then renumber |
 | `--dry-run` | show the list and change nothing |
 | `--by modified` | order by date modified instead of date created |
+| `--by created` | force date order on a folder whose names are already numbered |
 | `--by name` | order by the current filenames |
 | `--start 0` | number from `000` instead of `001` |
 | `--digits 1` | name them `1`, `2`, `3` instead of `001`, `002`, `003` |

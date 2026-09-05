@@ -172,6 +172,27 @@ The batch files are named for what they do, in workflow order, on the user's ins
   fifths of the names start with a digit and the chosen order disagrees with natural
   name order, and names the first position where they diverge. It stays quiet on
   `--by name`, on folders whose names are not numbered, and when the orders agree.
+- **A warning was not enough, reported 2026-09-05.** The same trap reappeared on a second
+  machine, and this time the copy had run *backwards*: all 170 files in `input\images`
+  hold distinct creation times spanning 5.5 seconds, in exact reverse filename order, so
+  `--by created` renamed `170.jpg` to `001.jpg` and reversed the whole folder. The hint
+  fired and was ignored, which it would be: it appears above a list of 170 renames, the
+  answer it gives is a flag, and a double click has nowhere to type one.
+  `numbered_hint()` is therefore no longer only a message. When it fires and `--by` was
+  *not* given, `main()` switches the order to `name`, recollects, and prints `say_kept()`
+  above the menu instead. Filenames that are already numbered are an order somebody
+  chose; a copy date is when the file reached the machine, which is not the same thing
+  and is not even reliably forwards.
+- `--by` uses `argparse.SUPPRESS` as its default so the code can tell an explicit
+  `--by created` from no answer at all, `hasattr(args, "by")`. Only the unasked for
+  default is overruled, and SUPPRESS also keeps `(default: None)` out of `--help`, which
+  a plain `default=None` would print under `ArgumentDefaultsHelpFormatter`.
+- `numbered_hint()` skips entries marked `inserted`. It used to judge the folder by every
+  name in `entries`, which after `place()` includes the `__inserted__0.png` staging name,
+  and then quoted that name back at the user as though they had chosen it.
+- Checks 11 and 12 of the harness are the pair that pins this down: a numbered folder
+  whose creation dates run backwards must come out untouched, and `--by created` on that
+  same folder must still reverse it. Over-correcting would break the second one.
 - `random` reports the seed it picked when none was given. A shuffle nobody can repeat
   is one you cannot get back to, and `--undo` is not always what you want. `--seed`
   makes it reproducible, which is also what makes it testable.
@@ -237,7 +258,7 @@ The batch files are named for what they do, in workflow order, on the user's ins
   failure. Both step files treat 2 as not a failure, so none of those print an error.
 - Without a console it refuses to rename and says to add `--yes`, so a piped or scheduled
   run cannot silently renumber a folder.
-- The regression harness is `temp\check_rename_images.ps1`, thirteen checks. It sets
+- The regression harness is `temp\check_rename_images.ps1`, fifteen checks. It sets
   `CreationTime` from PowerShell, which `os.utime` cannot do, identifies every file by
   its contents rather than its name so a plausible looking wrong order is still caught,
   and deletes the records its own runs produced.
@@ -248,6 +269,14 @@ The batch files are named for what they do, in workflow order, on the user's ins
   test the closing `pause` already used, so a terminal or a calling script goes straight
   through and automation is unaffected. Verified with a wrapper batch file: no prompt,
   no pause, exit code propagates.
+- **`where python` is not a test that Python exists.** All three launchers picked their
+  interpreter with `if not defined PY where python >nul 2>&1 && set "PY=python"`. A clean
+  Windows keeps a Microsoft Store stub called `python.exe` on the PATH, so that succeeds
+  on a machine with no Python at all, and running the stub opens the Store rather than
+  the script: the window appears to do nothing and the launcher never reaches its own
+  "Run Setup.bat first" message. `Setup.bat` had this right from the start and says so in
+  a comment; the launchers now use the same test, running the interpreter and checking
+  `sys.version_info>=(3,8)`. Fixed 2026-09-05.
 - The answer is read with `set /p`, not `choice`. `set /p` needs a typed Y and Enter,
   so a bare Enter, a closed window or a stray keypress all cancel, which is the whole
   point. `choice` would accept a single accidental Y, and is one more thing that has to

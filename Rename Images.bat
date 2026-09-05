@@ -26,7 +26,9 @@ rem
 rem    --insert FILE --at 5   put an image in at number 5, then renumber.
 rem                   Repeat the pair to insert more than one.
 rem    --dry-run      show what would be renamed and change nothing
-rem    --by created   date created, oldest first. The default
+rem    --by created   date created, oldest first. The default, except on a
+rem                   folder whose names are already numbered, where that
+rem                   numbering is kept unless you ask for this
 rem    --by modified  date modified, oldest first
 rem    --by name      filename, A to Z
 rem    --by size      file size, smallest first
@@ -68,6 +70,10 @@ echo   size, type or at random, forwards or backwards. It can also
 echo   drop a new image into the middle: give it the picture and the
 echo   number it should take, and everything from there shifts up.
 echo.
+echo   Filenames that are already numbered are left in that order,
+echo   because those names are an order somebody chose and the date
+echo   a file was copied onto this machine is not.
+echo.
 echo   It shows you the full list and asks again before renaming
 echo   anything, and the old names can be put back with --undo.
 echo   Only input\images is touched.
@@ -82,8 +88,19 @@ rem Find a Python. The private copy that Setup.bat may have unpacked wins, so a
 rem folder that was set up portably keeps working on a machine with no Python.
 set "PY="
 if exist "runtime\python\python.exe" set "PY=runtime\python\python.exe"
-if not defined PY where python >nul 2>&1 && set "PY=python"
-if not defined PY where py >nul 2>&1 && set "PY=py"
+
+rem A Python on PATH only counts if it actually runs. A clean Windows keeps a
+rem Microsoft Store stub called python.exe on the PATH, so "where python"
+rem succeeds on a machine that has no Python at all, and running the stub opens
+rem the Store instead of the script. Setup.bat has always tested the interpreter
+rem by running it, and the launchers do the same now, so a folder copied to a
+rem machine that was never set up says so instead of appearing to do nothing.
+for %%C in (python py) do (
+    if not defined PY (
+        %%C -c "import sys; sys.exit(0 if sys.version_info>=(3,8) else 1)" >nul 2>&1
+        if not errorlevel 1 set "PY=%%C"
+    )
+)
 if not defined PY (
     echo.
     echo   ERROR: Python was not found.

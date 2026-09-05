@@ -1,4 +1,4 @@
-r"""Renames the images in input\images to 001, 002, 003 in date order.
+r"""Renumbers the images in input\images as 001, 002, 003.
 
 The renderer takes the images in filename order, one per transcript line, so the
 names are what decide which image lands on which line. Camera and download names
@@ -12,6 +12,12 @@ Those are put in the order they were created and renamed
 
 Each file keeps its own extension, and anything in the folder that is not an
 image is left alone. This is what Rename Images.bat calls.
+
+When the filenames are already numbered, that order is kept instead. The names
+are an order somebody chose, and the date a file was created is only when it
+arrived on this machine: a folder copied in one go carries the time of the copy,
+in whatever order the copy ran, so following it can reverse the folder outright.
+Pass --by created to sort by date regardless.
 
 The order is not fixed. Sort by date created, date modified, filename, file
 size, file type or at random, forwards or reversed:
@@ -74,6 +80,11 @@ ORDERS = {
     "random":   ("random shuffle",               "random shuffle"),
 }
 
+# What a run sorts by when the command line does not say. It is only a starting
+# point: a folder whose filenames are already numbered overrules it, because
+# those names are an order somebody chose and the copy date is not.
+DEFAULT_ORDER = "created"
+
 
 def order_label(order, desc, seed=None):
     label = ORDERS[order][1 if desc else 0]
@@ -91,13 +102,15 @@ INSERTED = "__inserted__"
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="rename_images",
-        description="Renumber the images in input\\images as 001, 002, 003 in date order.",
+        description="Renumber the images in input\\images as 001, 002, 003.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("-f", "--folder", default=IMAGES,
                         help="the folder to renumber")
-    parser.add_argument("--by", default="created", choices=tuple(ORDERS),
-                        help="what to order the images by")
+    parser.add_argument("--by", default=argparse.SUPPRESS, choices=tuple(ORDERS),
+                        help="what to order the images by. Left out, it is %s, unless"
+                             " the filenames are already numbered, in which case that"
+                             " order is kept" % DEFAULT_ORDER)
     parser.add_argument("--desc", "--reverse", dest="desc", action="store_true",
                         help="reverse it, so the last one becomes 001")
     parser.add_argument("--seed", type=int, default=None,
@@ -506,20 +519,26 @@ def undo(wanted=None, force=False):
 def numbered_hint(entries, order):
     """Say so when the filenames already carry an order this run is ignoring.
 
-    A batch of images copied into a folder is written alphabetically, which
-    stamps the creation times in alphabetical order, milliseconds apart. So
-    --by created faithfully replays a copy order, and alphabetical puts 100
-    before 10 because a digit sorts before an underscore. The result looks like
-    the folder was shuffled, when the names were already right and only needed
-    --by name. Only raised when the names really are numbered and the chosen
-    order really does disagree, so it stays quiet on ordinary folders.
+    A batch of images copied into a folder is written in one burst, which stamps
+    the creation times milliseconds apart in whatever order the copy ran. So
+    --by created faithfully replays a copy order that has nothing to do with the
+    pictures, and a copy that ran backwards reverses the folder outright. The
+    result looks like the folder was shuffled, when the names were already right
+    and only needed --by name. Only raised when the names really are numbered and
+    the chosen order really does disagree, so it stays quiet on ordinary folders.
+
+    main() uses it twice over: to overrule a default that disagrees with the
+    names, and to warn when an explicit --by disagrees with them anyway.
     """
-    if order == "name" or len(entries) < 3:
+    # An image being inserted is placed by hand and holds a staging name the
+    # user never chose, so it says nothing about whether the folder is numbered
+    # and must not be quoted back at them.
+    current = [entry["name"] for entry in entries if not entry.get("inserted")]
+    if order == "name" or len(current) < 3:
         return None
-    numbered = sum(1 for entry in entries if entry["name"][:1].isdigit())
-    if numbered < len(entries) * 0.8:
+    numbered = sum(1 for name in current if name[:1].isdigit())
+    if numbered < len(current) * 0.8:
         return None
-    current = [entry["name"] for entry in entries]
     natural = sorted(current, key=natural_key)
     for index, (now, wanted) in enumerate(zip(current, natural), start=1):
         # The first place the two disagree, which is the one worth showing. The
@@ -528,6 +547,23 @@ def numbered_hint(entries, order):
         if now != wanted:
             return index, now, wanted
     return None
+
+
+def say_kept(kept):
+    """Say that the filenames' own order was used, and how to overrule it.
+
+    Printed rather than returned so it lands above the menu, before the question
+    that offers a different order, instead of after it.
+    """
+    was, first = kept
+    print()
+    print("  [i] these filenames are already numbered, so that order was kept.")
+    print("      %s would have started with" % was)
+    print("        %s" % _clipped(first, 60))
+    print("      A folder copied in one go is stamped with the time of the copy,")
+    print("      not the time the pictures were taken, and a copy can run in any")
+    print("      order. Add --by created to sort by date anyway.")
+    print()
 
 
 def report(folder, pairs, order, entries=None, hint=None):
@@ -549,9 +585,9 @@ def report(folder, pairs, order, entries=None, hint=None):
         print("        %s" % _clipped(now, 60))
         print("      where --by name would have")
         print("        %s" % _clipped(wanted, 60))
-        print("      A batch of images is copied in alphabetically, which stamps")
-        print("      the creation times in that order, and alphabetical sorts")
-        print("      100 before 10.")
+        print("      A folder copied in one go is stamped with the time of the copy,")
+        print("      not the time the pictures were taken, and a copy can run in any")
+        print("      order, including backwards.")
     if added:
         print()
         print("  inserting :")
@@ -605,19 +641,38 @@ def main(argv=None):
     # it: a folder the instructions point at should be there to be opened.
     os.makedirs(folder, exist_ok=True)
 
+    # SUPPRESS leaves the attribute off entirely when --by was not given, which
+    # is the whole point: an explicit --by created still means date order, and
+    # only the unasked for default may be overruled below.
+    asked_for = hasattr(args, "by")
+    order, desc = getattr(args, "by", DEFAULT_ORDER), args.desc
+
     # A shuffle nobody can repeat is a shuffle you cannot go back to, so when no
     # seed was given one is chosen here and reported with the result.
     seed = args.seed
-    if args.by == "random" and seed is None:
+    if order == "random" and seed is None:
         seed = random.randrange(1, 1000000)
 
-    entries = collect(folder, args.by, args.desc, seed)
+    entries = collect(folder, order, desc, seed)
+
+    # Filenames that are already numbered are an order somebody chose, and the
+    # date a file was created is not that order. It is when the file arrived on
+    # this machine, so a folder copied in one go carries the time of the copy,
+    # to fractions of a second, in whatever order the copy happened to run. When
+    # that order is backwards the default renames 170.jpg to 001.jpg and reverses
+    # the whole folder, which is what a second machine was doing. The names win.
+    kept = None
+    if not asked_for and numbered_hint(entries, order):
+        kept = (order_label(order, desc), entries[0]["name"])
+        order, desc = "name", False
+        entries = collect(folder, order, desc, seed)
+        say_kept(kept)
 
     inserts, positions = args.insert or [], args.at or []
-    order, desc = args.by, args.desc
+    chosen = (order, desc)
     if not inserts and not args.dry_run and not args.yes and _can_prompt():
         inserts, positions, order, desc = ask_what_to_do(folder, len(entries), order, desc)
-        if (order, desc) != (args.by, args.desc):
+        if (order, desc) != chosen:
             if order == "random" and args.seed is None:
                 seed = random.randrange(1, 1000000)
             entries = collect(folder, order, desc, seed)

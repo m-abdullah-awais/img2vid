@@ -74,8 +74,19 @@ rem Find a Python. The private copy that Setup.bat may have unpacked wins, so a
 rem folder that was set up portably keeps working on a machine with no Python.
 set "PY="
 if exist "runtime\python\python.exe" set "PY=runtime\python\python.exe"
-if not defined PY where python >nul 2>&1 && set "PY=python"
-if not defined PY where py >nul 2>&1 && set "PY=py"
+
+rem A Python on PATH only counts if it actually runs. A clean Windows keeps a
+rem Microsoft Store stub called python.exe on the PATH, so "where python"
+rem succeeds on a machine that has no Python at all, and running the stub opens
+rem the Store instead of the script. Setup.bat has always tested the interpreter
+rem by running it, and the launchers do the same now, so a folder copied to a
+rem machine that was never set up says so instead of appearing to do nothing.
+for %%C in (python py) do (
+    if not defined PY (
+        %%C -c "import sys; sys.exit(0 if sys.version_info>=(3,8) else 1)" >nul 2>&1
+        if not errorlevel 1 set "PY=%%C"
+    )
+)
 if not defined PY (
     echo.
     echo   ERROR: Python was not found.
