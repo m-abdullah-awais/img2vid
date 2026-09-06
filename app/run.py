@@ -67,7 +67,8 @@ def explain_setup(missing):
     print("  Put your files here, then run this again:")
     print()
     print("    input\\script.srt      your timestamped transcript (.srt, .vtt or .txt)")
-    print("    input\\images\\         one image per transcript line, named 1, 2, 3 ...")
+    print("    input\\images\\         one per transcript line, named 1, 2, 3 for the")
+    print("                          line it belongs to. A missing one is black")
     print("    input\\audio\\          one or more audio files, joined in name order")
     print()
     print("  The finished video is written to the output folder.")
@@ -148,21 +149,41 @@ def run():
 
     from i2v.render import RenderError  # noqa: PLC0415
 
-    try:
-        return main(argv + passed)
-    except RenderError as error:
-        # Double clicking leaves no way to add a flag, so offer it here instead
-        # of making the user edit Create Video.bat and start over.
-        if "--force" in passed or not _can_prompt():
-            raise
-        print()
-        print("  %s" % str(error).splitlines()[0])
-        print()
-        if not _confirm("  Build the video anyway, ignoring the mismatch?"):
-            print("  Nothing was rendered.")
-            return 1
-        print()
-        return main(argv + passed + ["--force"])
+    # Double clicking leaves no way to add a flag, so a failure that one flag
+    # would put right is offered here instead of making the user edit this file
+    # and start over. Which flag, and what to ask, comes from the failure
+    # itself: offering --force for a missing images folder only produced the
+    # same failure a second time.
+    extra = []
+    while True:
+        try:
+            return main(argv + passed + extra)
+        except RenderError as error:
+            repair = getattr(error, "repair", None)
+            if not repair or repair in passed or repair in extra or not _can_prompt():
+                raise
+            print()
+            for line in _offer_lines(error):
+                print("  %s" % line)
+            print()
+            if not _confirm("  " + error.question):
+                print("  Nothing was rendered.")
+                return 1
+            print()
+            # Appended before the retry, so each flag can only be offered once
+            # and the loop cannot spin. A second, different problem still gets
+            # its own offer, which the single retry this replaced could not do.
+            extra.append(repair)
+
+
+def _offer_lines(error):
+    """The failure, as told to somebody who is about to be offered the fix.
+
+    The last line of these messages names the flag that repairs them, which is
+    right on a command line and wrong here, because the next thing printed is
+    that same offer as a question.
+    """
+    return [line for line in str(error).splitlines() if not line.startswith("Pass ")]
 
 
 def _can_prompt():

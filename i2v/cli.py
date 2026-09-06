@@ -43,7 +43,9 @@ def build_parser():
     parser.add_argument("-t", "--transcript", required=True,
                         help="SRT, VTT, or plain text with line leading timestamps")
     parser.add_argument("-i", "--images", required=True,
-                        help="folder of images, one per timestamp, in natural filename order")
+                        help="folder of images, one per transcript line. Numbered names "
+                             "place each image on the line it is numbered for, and a line "
+                             "with no image is black. Otherwise natural filename order")
     parser.add_argument("-a", "--audio", required=True, nargs="+",
                         help="one or more audio files, joined in the order given")
     parser.add_argument("-o", "--output", default="output.mp4", help="output MP4 path")
@@ -66,6 +68,10 @@ def build_parser():
                         help="build the video even if the images and timestamps do not "
                              "line up, instead of stopping. Extra images are ignored, "
                              "extra timestamps are absorbed by the last image")
+    parser.add_argument("--allow-black", action="store_true",
+                        help="build the video even when some transcript lines have no "
+                             "image, showing a black screen for those lines. Deliberately "
+                             "separate from --force, which is safe to leave permanently on")
     parser.add_argument("--dry-run", action="store_true",
                         help="print the resolved timeline and exit without encoding")
     parser.add_argument("--keep-temp", action="store_true",
@@ -103,17 +109,72 @@ def choose_jobs(requested, encoder_name, chunk_count):
     return max(1, min(jobs, chunk_count))
 
 
+def listed(missing, limit=12):
+    """The missing line numbers, clipped.
+
+    A folder a hundred images short should not print a hundred numbers at
+    somebody, and the count is stated alongside this anyway.
+    """
+    shown = ", ".join(str(number) for number in missing[:limit])
+    if len(missing) > limit:
+        shown += ", and %d more" % (len(missing) - limit)
+    return shown
+
+
+def these_lines(count):
+    """The three ways this message has to refer to the lines with no image.
+
+    Worth the few lines, because "1 transcript line(s) have no image" is the
+    first thing a user reads when a run stops, and it should read like a
+    sentence somebody wrote.
+    """
+    if count == 1:
+        return "1 transcript line has", "that line", "the missing image"
+    return ("%d transcript lines have" % count, "those %d lines" % count,
+            "the %d missing images" % count)
+
+
+def missing_images_error(missing):
+    """The stop, when lines have no image and nobody has said black is fine.
+
+    Black frames are a real edit to the video, so they are offered rather than
+    assumed. The point worth making in the message is that nothing has shifted:
+    the whole cost of saying no is running this again with the images added.
+    """
+    have, those, add = these_lines(len(missing))
+    return render.RenderError(
+        "%s no image: %s.\n"
+        "  Images are placed by the number their filename starts with, so nothing\n"
+        "  else has moved out of place. Add %s to the images folder\n"
+        "  and run again, or build the video now and leave %s as a\n"
+        "  black screen.\n"
+        "Pass --allow-black to build it with %s black."
+        % (have, listed(missing), add, those, those),
+        repair="--allow-black",
+        question="Leave %s black and build the video?" % those)
+
+
+def black_lines_note(missing):
+    """Say which lines are coming out black, once that has been agreed to."""
+    have = these_lines(len(missing))[0]
+    return ("%s no image and will be black: %s.\n"
+            "           Images are placed by the number their filename starts with,\n"
+            "           so every other line still matches the narration."
+            % (have, listed(missing)))
+
+
 def print_timeline(timeline, total_audio, fps, encoder_name, jobs, chunks):
-    print("  #  image                              start        end     dur   frames")
-    print("  " + "-" * 71)
+    print("  #  image                                          start        end     dur   frames")
+    print("  " + "-" * 83)
     for entry in timeline:
-        print("%3d  %-32s %8.3f %10.3f %7.3f %8d" % (
+        print("%3d  %-44s %8.3f %10.3f %7.3f %8d" % (
             entry["index"] + 1,
-            os.path.basename(entry["image"])[:32],
+            ("(black, no image)" if entry["black"]
+             else os.path.basename(entry["image"]))[:44],
             entry["start"], entry["end"], entry["seconds"], entry["frames"],
         ))
     frames = sum(entry["frames"] for entry in timeline)
-    print("  " + "-" * 71)
+    print("  " + "-" * 83)
     print("  segments: %d   audio: %.3fs   video: %.3fs   frames: %d @ %d fps"
           % (len(timeline), total_audio, frames / fps, frames, fps))
     print("  encoder: %s   chunks: %d   jobs: %d" % (encoder_name, chunks, jobs))
@@ -167,6 +228,19 @@ def main(argv=None):
     def warn(text):
         sys.stderr.write("  warning: %s\n" % text)
         sys.stderr.flush()
+
+    # A numbered image names the transcript line it belongs to, so one that was
+    # never made leaves that line black rather than pulling every later image
+    # forward a line and running the rest of the video against the wrong words.
+    placed = render.place_by_index(images, len(starts))
+    if placed is not None:
+        images, missing = placed
+        # --dry-run is exempt because showing what would happen is its whole
+        # job, and --quiet is not, because this is a stop rather than a remark.
+        if missing and not args.allow_black and not args.dry_run:
+            raise missing_images_error(missing)
+        if missing and not args.quiet:
+            warn(black_lines_note(missing))
 
     timeline = render.build_timeline(
         starts, images, total_audio, args.fps,

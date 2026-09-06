@@ -22,8 +22,10 @@ the work over cores.
 
 import os
 import re
+import struct
 import subprocess
 import threading
+import zlib
 from concurrent.futures import ThreadPoolExecutor
 
 from .probe import NO_WINDOW
@@ -40,6 +42,7 @@ CHUNK_SIZE = 24
 CHUNKS_PER_JOB = 2
 
 _NUM_SPLIT = re.compile(r"(\d+)")
+_LEADING_NUMBER = re.compile(r"\d+")
 _PROGRESS_RE = re.compile(r"^out_time_(?:us|ms)=(-?\d+)$")
 _FRAME_RE = re.compile(r"^frame=\s*(\d+)$")
 
@@ -56,7 +59,21 @@ _ESCAPED_QUOTE = "'\\''"
 
 
 class RenderError(RuntimeError):
-    """Raised when inputs do not line up or ffmpeg fails."""
+    """Raised when inputs do not line up or ffmpeg fails.
+
+    `repair` is the one flag that would let this particular run carry on, and
+    `question` is what to ask before adding it. Create Video.bat uses the pair
+    to offer that flag on a double click, where there is nowhere to type one.
+
+    Both stay None for a failure no flag can put right, which is what stops the
+    offer being made for something like a missing images folder, where saying
+    yes only produces the same failure a second time.
+    """
+
+    def __init__(self, message, repair=None, question=None):
+        super().__init__(message)
+        self.repair = repair
+        self.question = question
 
 
 # Every ffmpeg currently running, so an interrupt can stop them at once instead
@@ -116,6 +133,117 @@ def find_images(folder):
     return [os.path.abspath(os.path.join(folder, name)) for name in names]
 
 
+def shown_name(image):
+    """A path's filename, or a stand in for a line that has no image."""
+    return os.path.basename(image) if image else "(black)"
+
+
+def place_by_index(images, count):
+    """Put every image on the transcript line its own filename numbers.
+
+    Pairing by position has no error detection in it. An image that was never
+    made is not a hole in the list, it is an absence, so every later image
+    slides one line earlier and the video runs against the wrong narration from
+    that point on. The only symptom is a count one short, which says nothing
+    about where the gap is or which lines are now wrong.
+
+    A number in a filename is an identity rather than a position, so 004.jpg
+    means line four whether or not 003.jpg exists. A line that no image claims
+    comes back as None, and is rendered as a black frame for its full duration,
+    which leaves every other line exactly where it belongs.
+
+    Returns None when the folder is not numbered this way, and the caller pairs
+    by position as before. That takes every name starting with a number, and no
+    name claiming a line past the end of the transcript. The second condition
+    is what keeps camera names out: 20260401_182233.jpg claims line twenty
+    million, so a folder of those is paired by position exactly as it always
+    was. Two names claiming one line is an error rather than a fallback,
+    because by then the folder is plainly numbered and only one of them can be
+    right.
+    """
+    if not images or count < 1:
+        return None
+
+    numbers = []
+    for path in images:
+        match = _LEADING_NUMBER.match(os.path.basename(path))
+        if not match:
+            return None
+        numbers.append(int(match.group()))
+
+    # Rename Images.bat can number a folder from 000 with --start 0, and that
+    # is as valid a scheme as one starting at 001. A zero present says which.
+    base = 0 if 0 in numbers else 1
+    if max(numbers) - base >= count:
+        return None
+
+    claimed = {}
+    for number, path in zip(numbers, images):
+        if number in claimed:
+            raise RenderError(
+                "Two images both claim line %d: %s and %s.\n"
+                "Images are placed by the number their filename starts with, so "
+                "one number cannot be used twice. Rename one of them."
+                % (number, os.path.basename(claimed[number]), os.path.basename(path))
+            )
+        claimed[number] = path
+
+    slots = [None] * count
+    for number, path in claimed.items():
+        slots[number - base] = path
+    missing = [index + base for index, path in enumerate(slots) if path is None]
+    return slots, missing
+
+
+# --------------------------------------------------------------------------
+# The black frame
+# --------------------------------------------------------------------------
+
+def _png_chunk(tag, payload):
+    """One length, tag, payload and CRC record, which is all a PNG is made of."""
+    return (struct.pack(">I", len(payload)) + tag + payload
+            + struct.pack(">I", zlib.crc32(tag + payload) & 0xffffffff))
+
+
+def black_image(path, width, height):
+    """Write a solid black PNG at exactly the output resolution.
+
+    At the output size rather than at some small size on purpose. Then --fit
+    contain has nothing to pad and --fit cover has nothing to crop, so the
+    frame comes out black whatever --bg is set to and whatever shape the real
+    images happen to be.
+
+    Written here rather than fetched from an imaging library because the whole
+    video side of this project is standard library only, and a solid colour PNG
+    is a header and one deflate stream. A 1080p field of zeros compresses to a
+    few kilobytes in a few milliseconds.
+    """
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    # Filter byte 0 then three zero bytes per pixel, for every row.
+    body = zlib.compress((b"\x00" + b"\x00\x00\x00" * width) * height, 6)
+    with open(path, "wb") as handle:
+        handle.write(b"\x89PNG\r\n\x1a\n")
+        handle.write(_png_chunk(b"IHDR", header))
+        handle.write(_png_chunk(b"IDAT", body))
+        handle.write(_png_chunk(b"IEND", b""))
+    return path
+
+
+def fill_black(timeline, job_dir, width, height):
+    """Give every line with no image the same black frame, and return how many.
+
+    One file shared by all of them. ffmpeg decodes each input once and holds
+    the frame with the loop filter, so a hundred black lines cost one decode
+    of one small file each and nothing else.
+    """
+    empty = [entry for entry in timeline if entry["image"] is None]
+    if empty:
+        path = black_image(os.path.join(job_dir, "black.png"), width, height)
+        for entry in empty:
+            entry["image"] = path
+    return len(empty)
+
+
 # --------------------------------------------------------------------------
 # Timeline
 # --------------------------------------------------------------------------
@@ -129,6 +257,12 @@ def build_timeline(starts, images, total_audio, fps, force=False, on_warning=Non
 
     The first image is pulled back to time zero even if the transcript starts
     later, so the video never opens on black.
+
+    An image of None is a line that no image claimed, which place_by_index
+    produces when the folder is numbered and one of the numbers is absent. It
+    is kept in the timeline with its own frame count and marked black, so the
+    line holds a black frame for its full duration and every later line stays
+    where it belongs. fill_black turns it into a real file before encoding.
 
     Three things can make the inputs unusable: the counts not matching, audio
     that stops before the last timestamp, and two timestamps closer together
@@ -145,12 +279,17 @@ def build_timeline(starts, images, total_audio, fps, force=False, on_warning=Non
                 "Count mismatch: %d transcript timestamps but %d images.\n"
                 "  first images: %s\n"
                 "There must be exactly one image per timestamp.\n"
+                "Name each image for the line it belongs to, 1 to %d, and any line\n"
+                "left without one is rendered black instead of shifting the rest.\n"
                 "Pass --force to build the video anyway from whichever there are fewer of."
                 % (
                     len(starts),
                     len(images),
-                    ", ".join(os.path.basename(item) for item in images[:5]) or "none",
-                )
+                    ", ".join(shown_name(item) for item in images[:5]) or "none",
+                    len(starts),
+                ),
+                repair="--force",
+                question="Build the video anyway, ignoring the mismatch?",
             )
         keep = min(len(images), len(starts))
         if not keep:
@@ -158,7 +297,7 @@ def build_timeline(starts, images, total_audio, fps, force=False, on_warning=Non
         if len(images) > keep:
             warn("--force: %d timestamps but %d images. Ignoring the last %d image(s): %s"
                  % (len(starts), len(images), len(images) - keep,
-                    ", ".join(os.path.basename(item) for item in images[keep:][:5])))
+                    ", ".join(shown_name(item) for item in images[keep:][:5])))
         else:
             warn("--force: %d timestamps but %d images. Using the first %d timestamps, "
                  "so image %d holds until the audio ends."
@@ -173,7 +312,9 @@ def build_timeline(starts, images, total_audio, fps, force=False, on_warning=Non
                 "The audio is %.3fs long but the last transcript timestamp is at "
                 "%.3fs. The audio must run past the final timestamp.\n"
                 "Pass --force to drop the timestamps that fall past the end of the audio."
-                % (total_audio, starts[-1])
+                % (total_audio, starts[-1]),
+                repair="--force",
+                question="Drop the timestamps past the end of the audio and build it?",
             )
         keep = sum(1 for value in starts if value < total_audio)
         if not keep:
@@ -199,7 +340,9 @@ def build_timeline(starts, images, total_audio, fps, force=False, on_warning=Non
                     "Timestamps %d and %d are less than one frame apart at %d fps "
                     "(%.3fs and %.3fs). Increase --fps or merge the lines.\n"
                     "Pass --force to drop the shorter of the two."
-                    % (index, index + 1, fps, starts[index - 1], start)
+                    % (index, index + 1, fps, starts[index - 1], start),
+                    repair="--force",
+                    question="Drop the shorter of those two lines and build the video?",
                 )
             dropped += 1
             continue
@@ -210,7 +353,11 @@ def build_timeline(starts, images, total_audio, fps, force=False, on_warning=Non
         if not force or len(pairs) == 1:
             raise RenderError(
                 "The last timestamp at %.3fs leaves no room before the audio ends "
-                "at %.3fs." % (pairs[-1][0] / fps, total_audio)
+                "at %.3fs.%s"
+                % (pairs[-1][0] / fps, total_audio,
+                   "" if force else "\nPass --force to drop that line."),
+                repair=None if force else "--force",
+                question="Drop that last line and build the video?",
             )
         dropped += 1
         pairs.pop()
@@ -224,6 +371,7 @@ def build_timeline(starts, images, total_audio, fps, force=False, on_warning=Non
         timeline.append({
             "index": index,
             "image": image,
+            "black": image is None,
             "frames": following - boundary,
             "start": boundary / fps,
             "end": following / fps,
@@ -421,6 +569,7 @@ def mux(tools, options, parts, job_dir, total_seconds, on_progress=None):
 
 def render(tools, options, encoder, timeline, job_dir, jobs, on_progress=None):
     """Encode every chunk, concurrently when there is more than one, then mux."""
+    fill_black(timeline, job_dir, options["width"], options["height"])
     chunks = chunk_timeline(timeline, jobs, options["chunk_size"])
     total_seconds = timeline[-1]["end"]
 

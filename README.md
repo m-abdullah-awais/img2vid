@@ -179,9 +179,16 @@ Copy exactly that many images into the `input\images` folder.
 
 Accepted: `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.tif`.
 
-**Name them so they sort in order**: `1.jpg`, `2.jpg`, `3.jpg` and so on. Plain numbers
-are safest. The first image is shown for the first line of the transcript, the second
-for the second line, and so on to the end.
+**Name each image for the line it belongs to**: `1.jpg`, `2.jpg`, `3.jpg` and so on. The
+number at the front is what decides where an image lands, so `4.jpg` is the fourth line
+of the transcript whether or not `3.jpg` exists.
+
+Anything after the number is yours. `004. two men talking.jpg` lands on line 4 just the
+same, and a folder named that way is readable at a glance.
+
+If an image is missing, that one line is shown as a **black screen** and every other
+image stays exactly where it belongs. Create Video.bat tells you which numbers are
+missing and asks before it builds anything, so you can stop, add them, and run it again.
 
 Already have names like `IMG_20260401_182233.jpg`? Double click **Rename Images.bat**.
 It renumbers the folder `001`, `002`, `003` in the order the files were created, shows
@@ -409,8 +416,13 @@ than failing with a stack trace.
 ## Rename Images.bat
 
 Optional, and the only part of this project that changes files you brought in. The video
-is built from the images in filename order, one per transcript line, so the names decide
-which image lands on which line. Camera and download names do not sort that way.
+is built from the number each image carries, one per transcript line, so the names decide
+which image lands on which line. Camera and download names carry no such number.
+
+**It always renumbers without gaps.** If your folder is already numbered against a
+transcript and one number is missing, do not run this: it would close the gap and move
+every later image onto the wrong line. A missing number needs no repair, that line
+renders black. See [Matching images to timestamps](#matching-images-to-timestamps).
 
 Double click **Rename Images.bat**. It asks twice: once before it does anything at all,
 and again after it has shown you the exact list of renames. It offers two things:
@@ -669,15 +681,70 @@ Two rules apply to every format:
 
 ## Matching images to timestamps
 
-Images are read from the folder given to `-i` and sorted in natural filename order,
-so `2.png` comes before `10.png` rather than after it. The first image goes with the
-first timestamp, the second with the second, and so on.
+**A numbered folder places each image on the line it is numbered for.** `004.jpg` is the
+image for the fourth transcript line, whether or not `003.jpg` exists. This is the normal
+case, because `Rename Images.bat` numbers a folder `001`, `002`, `003`.
+
+Only the number at the front is read, so the rest of the name is free for whatever helps
+you. `004. two men talking.jpg` is line 4 as well, and `--dry-run` has room to print it.
+
+That matters when an image is missing. Pairing purely by position has no error detection
+in it: an image that was never made is not a hole in the list, it is an absence, so every
+later image slides one line earlier and the rest of the video runs against the wrong
+narration. Numbering by line keeps the gap local. **The line with no image is rendered as
+a black frame for its full duration, and every other line stays where it belongs.**
+
+A black frame is a real edit to your video, so it is offered rather than assumed. The run
+stops, names the lines that have no image, and waits for an answer:
+
+```
+  1 transcript line has no image: 4.
+    Images are placed by the number their filename starts with, so nothing
+    else has moved out of place. Add the missing image to the images folder
+    and run again, or build the video now and leave that line as a
+    black screen.
+
+  Leave that line black and build the video? [y/N]
+```
+
+Press Enter and nothing is rendered. Drop an image named `004` into the folder, run
+again, and nothing else has to move. Answer `y` and the video is built with that line
+black, and the run repeats which lines those were:
+
+```
+  warning: 1 transcript line has no image and will be black: 4.
+           Images are placed by the number their filename starts with,
+           so every other line still matches the narration.
+```
+
+To answer that question in advance, use `--allow-black`, either on the command line or on
+the `FLAGS` line inside Create Video.bat. **`--force` deliberately does not cover this.**
+`--force` is safe to leave switched on permanently, and a permanently on flag must not be
+able to silence a question about your own images.
+
+`--dry-run` never asks. It shows the black lines in the timeline and exits:
+
+```
+  #  image                                          start        end     dur   frames
+  -----------------------------------------------------------------------------------
+  3  003.png                                         4.300      6.067   1.767       53
+  4  (black, no image)                               6.067      8.200   2.133       64
+  5  005.png                                         8.200     10.100   1.900       57
+```
+
+**An unnumbered folder is paired by position, exactly as it always was.** Images are
+sorted in natural filename order, so `2.png` comes before `10.png` rather than after it,
+and the first image goes with the first timestamp. Placing by number needs every name to
+start with a number and no name to claim a line past the end of the transcript, so a
+folder of `IMG_20260401_182233.jpg` is read in order rather than scattered across the
+timeline. In that mode the counts must match exactly, and the run stops if they do not
+rather than silently producing a mistimed video.
+
+Two images cannot claim the same line. `4.jpg` and `004.png` together is an error naming
+both files, because only one of them can be right.
 
 Supported extensions: `png`, `jpg`, `jpeg`, `webp`, `bmp`, `tif`, `tiff`. Formats,
 sizes and orientations can be mixed freely within one folder.
-
-The counts must match exactly. If they do not, the run stops with a message telling
-you both numbers rather than silently producing a mistimed video.
 
 By default images are letterboxed to fit the output frame without cropping
 (`--fit contain`). Use `--fit cover` to fill the frame and crop the overflow instead,
@@ -728,7 +795,7 @@ cue it split. On a 399 second narration that yields 86 natural cues:
 | Flag | Default | Description |
 | --- | --- | --- |
 | `-t`, `--transcript` | required | SRT, VTT, or plain text with leading timestamps |
-| `-i`, `--images` | required | Folder of images, one per timestamp |
+| `-i`, `--images` | required | Folder of images, one per transcript line. Numbered names place each image on its own line and a line with no image is black, otherwise natural filename order |
 | `-a`, `--audio` | required | One or more audio files, joined in the order given |
 | `-o`, `--output` | `output.mp4` | Output MP4 path |
 | `--fps` | `30` | Output frame rate |
@@ -739,6 +806,7 @@ cue it split. On a 399 second narration that yields 86 natural cues:
 | `--chunk-size` | `24` | Images per encoder process |
 | `--encoder` | `auto` | `auto` times both once and keeps the faster, or force `qsv` / `x264` |
 | `--force` | off | Build anyway when the images and timestamps do not line up |
+| `--allow-black` | off | Build anyway when some transcript lines have no image, showing black for those lines |
 | `--dry-run` | off | Print the resolved timeline and exit |
 | `--keep-temp` | off | Keep intermediate files in `temp/` for inspection |
 | `--quiet` | off | Suppress progress output |
@@ -974,10 +1042,15 @@ Notes on tuning:
 
 ## When the counts do not match
 
-Normally the number of images must equal the number of transcript lines, and the run
-stops if it does not. That is deliberate. If the tool quietly guessed, every image after
-the missing one would be shown against the wrong line, and you would not find out until
-you watched the finished video.
+**If your images are numbered, this mostly does not arise.** A line whose number is not
+in the folder is rendered black and everything else stays put, so a missing image costs
+one black screen rather than a video that runs out of sync from that point on. See
+[Matching images to timestamps](#matching-images-to-timestamps).
+
+For an unnumbered folder the number of images must equal the number of transcript lines,
+and the run stops if it does not. That is deliberate. If the tool quietly guessed, every
+image after the missing one would be shown against the wrong line, and you would not find
+out until you watched the finished video.
 
 When you would rather have the video anyway, pass `--force`:
 
@@ -1214,9 +1287,22 @@ table in the [Command reference](#command-reference) shows the counts each setti
 produced on a real 399 second narration.
 
 **`Count mismatch: N transcript timestamps but M images`**
-There must be exactly one image per transcript line. Check for a stray file in the
-images folder, or a blank line that was parsed as a cue. Pass `--force` to build the
-video anyway, or put `--force` on the `FLAGS` line in Create Video.bat.
+Only unnumbered folders can produce this, since a numbered one renders the missing lines
+black instead. Name every image for the line it belongs to, `001` to `N`, and the problem
+goes away along with the risk of a silent shift. Otherwise check for a stray file in the
+images folder, or a blank line that was parsed as a cue. Pass `--force` to build the video
+anyway, or put `--force` on the `FLAGS` line in Create Video.bat.
+
+**`N transcript lines have no image`**
+Some numbers are not in `input\images`, so those transcript lines have nothing to show.
+Nothing has moved out of place. Either add images with those numbers and run again, or
+answer `y` to build the video now with those lines as a black screen. On the command line
+that answer is `--allow-black`.
+
+**`Two images both claim line N`**
+Two files in `input\images` start with the same number, such as `4.jpg` and `004.png`.
+The number decides which transcript line an image lands on, so it can only be used once.
+Delete or renumber one of them.
 
 **`The audio is Xs long but the last transcript timestamp is at Ys`**
 The audio has to run past the final timestamp, since the last image is held until the

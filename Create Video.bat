@@ -13,7 +13,8 @@ rem  Step 2 of 2.  Transcript + images + audio  ->  finished MP4.
 rem
 rem  Expects:
 rem    input\script.srt      a timestamped transcript, or run Transcribe Audio.bat
-rem    input\images\         one image per transcript line, in name order
+rem    input\images\         one image per transcript line, named for the line
+rem                          it belongs to. A line with no image is black
 rem    input\audio\          one or more audio files
 rem
 rem  The video is written to output\ and named for the date and time it was
@@ -23,6 +24,9 @@ rem  Options. Put any flags you always want between the quotes below.
 rem
 rem    --force        build the video even when the number of images does not
 rem                   match the number of transcript lines
+rem    --allow-black  build the video even when some transcript lines have no
+rem                   image, showing a black screen for those lines. Without
+rem                   it you are asked first. --force does not cover this
 rem    --fps 15       lower frame rate, renders faster, fine for a slideshow
 rem    --fit cover    fill the frame and crop, instead of letterboxing
 rem
@@ -52,7 +56,9 @@ echo   This builds the finished video from what is in the input
 echo   folder:
 echo.
 echo     input\script.srt      the transcript, one line per image
-echo     input\images\         your images, in filename order
+echo     input\images\         your images, named 1, 2, 3 for the lines
+echo                           they belong to. A missing one is a black
+echo                           screen, and the rest do not move
 echo     input\audio\          your narration
 echo.
 echo   The video is written to output\ and replaces any file there

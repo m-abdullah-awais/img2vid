@@ -172,6 +172,125 @@ The batch files are named for what they do, in workflow order, on the user's ins
 - Verified: `HF_HUB_OFFLINE=1` loads the base model, proving the offline path takes no
   network, and a stubbed 429 produces the new message rather than the raw HfHubHTTPError.
 
+## Placing Images By Index
+
+- **The reported failure, 2026-09-06.** "sometimes the image might be missing at some
+  point and it results in the disturbance of all the images after it". With image 4
+  absent, image 5 was shown on line 4, image 6 on line 5, and the whole video ran
+  against the wrong narration from that point on. The user asked for images to be placed
+  by their index, with a black screen wherever one is missing.
+- **Root cause.** `build_timeline` zipped the sorted image list against the sorted start
+  times. Position carries no identity, so a file that was never made is not a hole in the
+  list, it is an absence, and everything after it moves up one. The only symptom was a
+  count one short, which says nothing about where the gap is. `--force` then made it
+  worse: with fewer images than timestamps it kept the first N timestamps and held the
+  last image to the end, so the shift survived and the tail was mangled on top of it.
+- **`render.place_by_index(images, count)`** returns a list of `count` slots, each a path
+  or `None`, built from the number each filename starts with. `004.jpg` is line 4 whether
+  or not `003.jpg` exists.
+- **When it declines and falls back to position.** Any name not starting with a number,
+  or any number claiming a line past the end of the transcript. The second condition is
+  what keeps camera names out: `20260401_182233.jpg` claims line twenty million, so a
+  folder of those is paired by position exactly as before. Without that guard every slot
+  would come back empty and the whole video would render black, which is far worse than
+  the bug being fixed.
+- **Duplicates raise rather than fall back.** `4.jpg` and `004.png` both claim line 4, and
+  by the time that check runs the folder is plainly numbered, so only one of them can be
+  right. The check runs after the range check on purpose, so `2020 photo.jpg` next to
+  `2020 other.jpg` exits as a camera style folder instead of being called a conflict.
+- **Base 0 or 1.** `Rename Images.bat --start 0` numbers a folder from `000`, so a zero
+  present means the numbers are zero based. Anything else is one based. Inferring the
+  base from the lowest number present was rejected: if `001` is the missing file the base
+  would shift to 2 and reintroduce the exact off by one being fixed.
+- **The black frame is a real PNG, written by hand.** `render.black_image()` builds a
+  solid black PNG with `struct` and `zlib`, roughly fifteen lines. The video side of this
+  project is standard library only and that is worth keeping, and asking ffmpeg for a
+  `color=` source would have meant plumbing `Tools` into the timeline. 1080p of zeros
+  compresses to 6 KB in a few milliseconds.
+- **It is made at the output resolution deliberately.** Then `--fit contain` has nothing
+  to pad and `--fit cover` has nothing to crop, so the frame is black whatever `--bg` is
+  set to. A small placeholder would show `--bg` coloured bars around it.
+- **`fill_black()` is called from `render.render()`, not from the caller.** The only thing
+  that needs a real file on disk is the encoder, so it happens where encoding starts and
+  no caller can forget it. `--dry-run` never writes the file at all, which is why the
+  timeline entry carries a `black` flag rather than being identified by its path.
+- **Black lines are reported, not fatal.** The user asked for the black screen, and the
+  alignment is correct rather than mistimed, so the run proceeds and prints which lines
+  are affected. That is a real departure from the "count mismatches are a hard error"
+  rule above, and it is safe for the same reason the rule exists: the failure is visible
+  in the finished video instead of hidden in it.
+- **Rename Images.bat is now a hazard on a numbered folder.** `plan()` renumbers
+  contiguously, so running it on a folder with a gap closes the gap and puts every later
+  image on the wrong line, which is the original bug reintroduced by hand. Documented in
+  the README rather than changed, because renumbering without gaps is that tool's whole
+  job. Worth revisiting if the user hits it.
+- **Verified by `temp/check_index_placement.py`**, 22 checks. Fourteen on placement
+  itself: complete folders, a hole in the middle, at the start and at the tail, several
+  holes, listing order irrelevant, mixed padding and extensions, zero based folders,
+  camera names and unnumbered names falling back, a number past the end falling back,
+  duplicates refused, and an empty folder. Three on the black PNG, including decoding
+  all 6220800 bytes of it and asserting the brightest is 0. Five end to end: it builds
+  its own six colour fixture, renders it complete, deletes `004.png`, renders again and
+  run length checks every one of the 360 frames, confirming line 4 is black and lines 5
+  and 6 have not moved. The last check asserts the old positional pairing would have put
+  image 5 on line 4, so the harness fails if the bug ever comes back.
+- **Only the leading digits are read, so a name can carry words too.** The user asked on
+  2026-09-06 whether the first words of the generating prompt could go in the filename as
+  well, and they already could: `004. two men talking.jpg` is line 4. Worth keeping that
+  way, because it is the only thing that makes a folder of 170 images reviewable by eye.
+  The `--dry-run` image column was widened from 32 to 44 to suit, since a name of that
+  shape was being clipped, and the rule under it from 71 to 83.
+- Sampling a frame through `crop,scale=1:1` costs a few units of swscale error, which is
+  invisible on a saturated colour and obvious on black, where it read `(4, 0, 5)`. The
+  black PNG is therefore checked by decoding the whole file, not by sampling it.
+- `temp/verify.py` pointed at `ROOT/img2vid.py`, which moved to `app/` on 2026-08-24.
+  Fixed in place so the regression suite runs. All of it passes unchanged, because the
+  fixture is named `shot1.png` and so takes the positional path.
+
+- **A warning was not a gate, asked for 2026-09-06.** The first version printed which
+  lines would be black and built the video anyway. The user wanted it to stop and ask:
+  "if no image is provided to that index then after confirmation create the video but
+  that portion will remains empty". A black frame is a real edit, so it is offered
+  rather than assumed. `cli.missing_images_error()` raises, and answering yes adds
+  `--allow-black`.
+- **`--force` deliberately does not cover this, the user's decision of 2026-09-06.**
+  It breaks the rule two sections up that `--force` relaxes every input check, and it is
+  the right break: the README tells people `--force` is safe to leave permanently on the
+  FLAGS line, and a permanently on flag must not be able to silence a question about
+  their own images. `--allow-black` is the only permission, and it is the flag the
+  prompt adds.
+- **Missing lines at the tail behave exactly like a gap in the middle, the user's
+  decision of 2026-09-06.** Holding the last image to the end, which is what `--force`
+  does for a count mismatch, was offered and declined. Fifteen images against sixty cues
+  becomes forty five black lines after a yes, and the question names the count so the
+  size of that is not a surprise.
+- **`--dry-run` is exempt from the gate, `--quiet` is not.** Showing what would happen is
+  the whole job of the first, and the second suppresses remarks rather than stops.
+- **`RenderError` now carries `repair` and `question`.** `repair` is the one flag that
+  would let that particular run carry on, `question` is what to ask before adding it.
+  This replaced a hardcoded `--force` in `app/run.py`, which offered that flag for every
+  failure including ones it cannot repair, such as a missing images folder, and then
+  re-ran and failed identically. Annotated raises: count mismatch, audio ending before
+  the last timestamp, timestamps under a frame apart, and the last timestamp leaving no
+  room. Unannotated: missing folder, no images, duplicate line claims, and the two
+  "even with --force there is nothing to render" cases.
+- **The offer in `run.py` is a loop, not a single retry.** Each repair is appended before
+  the retry so it can only be offered once and cannot spin, and a second, different
+  problem still gets its own offer, which the single retry could not do.
+  `_offer_lines()` drops the trailing `Pass --flag` line, because the next thing printed
+  is that same offer as a question.
+- **`these_lines()` exists because "1 transcript line(s) have no image" is the first
+  thing a user reads when a run stops.** It returns the three phrasings the message
+  needs, so it reads like a sentence somebody wrote.
+- Harness grew from 22 checks to 38. The new ones: a hole stops the run by default,
+  the stop names the line and says nothing else moved, `--force` alone does not get past
+  it, `--dry-run` does, `--allow-black` builds it and still reports the black lines, the
+  error carries the right flag and question, the numbers clip past twelve, a duplicate
+  and a missing folder carry no flag at all, and `run()` itself retries with the named
+  flag on a yes and returns 1 on a no. That last one drives `run()` directly with
+  `_can_prompt` and `_confirm` replaced, because a subprocess cannot reach the prompt:
+  `_can_prompt()` wants a real console.
+
 ## Ordering Images
 
 - `--by created|modified|name|size|type|random` and `--desc`, asked for on 2026-08-29.
