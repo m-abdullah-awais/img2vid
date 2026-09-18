@@ -12,7 +12,9 @@ the user edits it.
 2. Store all memory inside this same directory in this `AGENTS.md` file and no other place.
 3. Always follow the rules defined in `temp/claude-rules.md`.
 4. The developer details below must be included in project documentation.
-5. Do not push code. Only commit locally, time to time, per feature or phase.
+5. Do not push code. Only commit locally, time to time, per feature or phase. The user
+   has overridden this for single commits by asking outright ("commit it with no
+   coauthor , and push it"); that permission covers only the commit it was given for.
 6. Never commit with a co author trailer of any kind.
 7. Install everything locally to project scope only. Never install anything globally.
 8. Stop all servers, shells, terminals and monitors that were started before finishing.
@@ -42,18 +44,127 @@ Full Stack Developer
 Each image is held on screen from its own timestamp until the next one. The last image
 runs until the audio ends.
 
-Two steps, two batch files:
+Since 2026-09-18 it is a **web app**. `Run.bat` starts the engine's API and the Next.js
+frontend in one console and opens the browser. Everything happens there: projects,
+uploading narration, transcribing, adding and arranging images, building the video and
+downloading it. See "Web App" below. The sections further down that talk about
+`app\`, `input\`, `output\` and the three step `.bat` files describe the design before
+that date. Their findings about the engine still hold; the file locations do not.
 
-1. `Transcribe Audio.bat` -> `app\transcribe.py` -> `input\script.srt`, `.txt` and
-   `temp\*.json`. Local faster-whisper on the CPU. Nothing is uploaded.
-2. `Create Video.bat` -> `app\run.py` -> `app\img2vid.py`. The original renderer,
-   unchanged.
+Priority is speed at both steps, and it stayed the priority through the move to a web
+app, on the user's explicit instruction: "make sure that we donot compromise on the
+speed". All heavy work is delegated to ffmpeg or to the speech engine. Python only
+orchestrates, and the web app only starts and watches the same scripts.
 
-Priority is speed at both steps. All heavy work is delegated to ffmpeg or to the speech
-engine. Python only orchestrates.
+## Web App
 
-The batch files are named for what they do, in workflow order, on the user's instruction.
-`Run.bat` was renamed to `Create Video.bat` in the same change that added transcription.
+Asked for on 2026-09-18: a complete Next.js frontend, frontend and backend kept apart,
+one `Run.bat` that starts both in the same terminal and opens the browser, an
+`/about-developer` page, and no compromise on UX. The `.claude` folder's
+`fullstack-developer` agent and `frontend-design` skill were used for it, at the user's
+request.
+
+**Layout**
+
+```
+backend/i2v/        the engine, unchanged apart from folder paths
+backend/i2v/paths.py  every folder, worked out once
+backend/cli/        the scripts: img2vid.py, transcribe.py, rename_images.py,
+                    setup_check.py, setup_speech.py, console.py, start.py
+backend/api/        the HTTP API, standard library only
+backend/runtime/    gitignored: private python, bin (ffmpeg), node, whisper, npm-cache
+backend/storage/    gitignored: projects/<id>/, work/, trash/
+frontend/           Next.js 16 App Router, created by create-next-app
+Run.bat  Setup.bat  README.md  LICENSE  AGENTS.md  .gitignore
+```
+
+**User decisions of 2026-09-18**
+
+- **The root stays clean and everything is done in the browser.** The user's words:
+  "we donot need the input, output folders etc on the root, we want the root to be
+  clean, the user on the frontend upload the local files on the UI and also after
+  completing downloads that files from the frontend ... the user will have no need to
+  open the files". So there is no `input\` or `output\` any more, and nothing a user
+  needs lives outside the app.
+- Create Video.bat, Transcribe Audio.bat and Rename Images.bat were removed. The
+  scripts they called remain in `backend\cli`, with explicit arguments, and are what
+  the API runs.
+- Setup.bat stays at the root as the one time step, and gained a Node.js step and a
+  web app install and build step.
+- Named projects: each video is a project with its own narration, transcript, images
+  and finished videos.
+- Dark editing suite look: graphite `#1B1F24`, panel `#242A31`, text `#E6E8EB`, missing
+  amber `#E0A23A`, ready green `#4FB286`, build red `#E5484D`. Barlow at three widths.
+- The backend is Python standard library only, so the embeddable Python still runs it.
+- Images can be arranged by drag and drop. Dropping on a line places the image there,
+  swapping with any image already on it. Dropping between lines inserts, and the shift
+  stops at the first empty line so nothing past a gap moves.
+
+**How the pieces fit**
+
+- The API serves on `127.0.0.1:8765` from a thread inside `start.py`. It answers only
+  requests addressed to 127.0.0.1 or localhost, only from localhost origins, and
+  anything that changes state must be JSON. That closes DNS rebinding and the cross
+  site form POST.
+- Renders and transcriptions run as child processes of the same scripts a terminal
+  would run, one at a time, with the engine's default flags. In process was rejected
+  because `render._CANCELLED` is a module level Event that is never cleared, so in a
+  long lived server every render after the first cancel would count as cancelled.
+- Progress comes from the engine's own `[####....]  45.0%` lines, parsed from the
+  child's merged, continuously drained output. An undrained pipe would stall a render.
+- The UI polls `GET /api/job` rather than using server sent events. The API is a
+  second origin, and an open EventSource permanently holds one of the browser's six
+  connections to it, which a storyboard of 170 thumbnails needs.
+- Thumbnails are keyed by content, not name, so arranging never regenerates one, and
+  they are not generated at all while a render runs.
+- Nothing is hard deleted through the UI. Removed or replaced files go to
+  `backend\storage\trash` and can be restored for seven days.
+- On first start the API imports anything left in the old root `input\` and
+  `output\` folders as a project named after the first audio file, then removes those
+  folders. `Run.bat` and `Setup.bat` likewise move an old root `runtime\` and `bin\`
+  into `backend\runtime` rather than downloading them again.
+- The browser is opened through `explorer.exe`, not directly. `start.py` sits in a
+  Windows job object that kills every child when the window closes, which is what
+  stops ffmpeg and Node, and a browser started as its child would be killed with it.
+- npm's cache, create-next-app's saved preferences and Next's telemetry all default to
+  the user profile. The cache goes to `backend\runtime\npm-cache`, telemetry is off,
+  and create-next-app was run with `APPDATA` and `LOCALAPPDATA` pointed into `temp\`.
+  Its preferences file did land there, which confirms the redirect was needed.
+- `frontend/AGENTS.md` and `frontend/CLAUDE.md` are gitignored. `next dev` writes and
+  rewrites them for coding assistants, and the text it writes contains an em dash.
+
+**Speed through the app, measured 2026-09-18** on the imported Florian project, 54
+images, 207.4 s of narration, 1920x1080 at 30 fps, with `temp/bench_render.py` and
+`temp/bench_transcribe.py`:
+
+| | terminal | browser | difference |
+| --- | --- | --- | --- |
+| render, best of 4 | 52.04 s | 52.92 s | +1.7% |
+| transcribe `--fresh`, best of 2 | 29.49 s | 29.57 s | +0.3% |
+
+Identical terminal renders spread from 52 to 57 s in the same session, so both
+differences are inside the noise. The first attempt read +5.6 percent, and it was the
+protocol, not the app: the terminal side ran with `--quiet`, and the browser run always
+followed a terminal run onto a CPU that was already hot. The fixed script drops
+`--quiet` and alternates which side goes first. Earlier that day, on a cooler machine,
+the same terminal render took 45.3 s and 51.9 s, which is finding 12 again: this laptop
+throttles hard, and any comparison has to interleave.
+
+**Verification of the web app**
+- `temp/check_engine.py`, 27 checks: the engine after the move, placement and
+  `placement_report`, the black line gate end to end, the rename round trip.
+- `temp/check_api.py`, 28 tests: every endpoint, security, Range, trash, the render
+  gate and a real render, cancel leaving no ffmpeg, locks, every arrange case, legacy
+  import on a fake root.
+- `backend\cli\setup_check.py`, all fourteen checks including the speech engine from
+  `backend\runtime`.
+- `Run.bat --no-browser` for real: built the frontend, imported the root `input\`
+  folder as project `florian-be7a` with all 54 images, the narration and both
+  transcript files, and removed the empty `input\` and `output\`. A second `start.py`
+  reported the running copy and exited 0.
+- The old harnesses (`verify.py`, `check_index_placement.py` and the PowerShell ones)
+  were gone from `temp\` by 2026-09-18, which is untracked and was cleared at some
+  point. `check_engine.py` replaces the parts that still apply.
 
 ## Environment Facts (verified on this machine, 2026-08-18)
 
@@ -106,6 +217,8 @@ The batch files are named for what they do, in workflow order, on the user's ins
   render went somewhere else, which is worse than not printing it at all.
 
 ## Root Layout
+
+Superseded on 2026-09-18 by the web app layout above. Kept for the reasoning.
 
 - The six launchers live in `app\`, on the user's decision of 2026-08-24, so that the
   root holds only what a user touches: the four `.bat` files, `README.md`, `LICENSE`,
