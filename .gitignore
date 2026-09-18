@@ -14,3 +14,7 @@ __pycache__/
 /output/
 /runtime/
 /bin/
+
+.claude
+.agents
+CLAUDE.md

@@ -44,7 +44,7 @@ function Monogram() {
       aria-hidden
       className="flex aspect-square w-36 flex-col justify-between rounded-[var(--radius-control)] border border-hairline bg-panel p-4 sm:w-44"
     >
-      <span className="heading text-[4.5rem] leading-[0.85] tracking-[-0.01em] sm:text-[5.5rem]">MA</span>
+      <span className="heading text-[4.5rem] leading-[0.85] tracking-[-0.01em] sm:text-[5.5rem]">MAA</span>
       <span className="flex h-2 w-full gap-px">
         <span className="flex-[3] bg-text" />
         <span className="flex-[2] bg-ready" />
