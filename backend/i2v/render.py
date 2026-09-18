@@ -161,38 +161,79 @@ def place_by_index(images, count):
     because by then the folder is plainly numbered and only one of them can be
     right.
     """
-    if not images or count < 1:
+    report = placement_report(images, count)
+    if report["mode"] != "numbered":
         return None
+    if report["duplicates"]:
+        clash = report["duplicates"][0]
+        raise RenderError(
+            "Two images both claim line %d: %s and %s.\n"
+            "Images are placed by the number their filename starts with, so "
+            "one number cannot be used twice. Rename one of them."
+            % (clash["number"], clash["names"][0], clash["names"][1])
+        )
+    return report["slots"], report["missing"]
+
+
+def placement_report(images, count):
+    """Everything place_by_index decides, without raising and with the reasons.
+
+    place_by_index only needs a yes or no, but a screen showing the folder has
+    to say why a folder is paired by position, name the file that caused it,
+    and list every clash rather than stopping at the first. Returns a dict:
+
+        mode        "numbered", "positional", or "empty" when there are no images
+        reason      None, or {"kind", "name", "number"} naming the file that sent
+                    the folder to position: "unnumbered" when its name has no
+                    leading number, "past_end" when its number is beyond the
+                    last line, "no_lines" when there is no transcript to number
+        base        0 or 1 when numbered, else None
+        slots       one path or None per line when numbered, else None. A line
+                    two images claim holds the first of them
+        missing     the numbers no image claims, when numbered
+        duplicates  [{"number", "names"}] for every number claimed twice or more
+    """
+    report = {"mode": "positional", "reason": None, "base": None, "slots": None,
+              "missing": [], "duplicates": []}
+    if not images:
+        report["mode"] = "empty"
+        return report
+    if count < 1:
+        report["reason"] = {"kind": "no_lines", "name": None, "number": None}
+        return report
 
     numbers = []
     for path in images:
         match = _LEADING_NUMBER.match(os.path.basename(path))
         if not match:
-            return None
+            report["reason"] = {"kind": "unnumbered", "name": os.path.basename(path),
+                                "number": None}
+            return report
         numbers.append(int(match.group()))
 
-    # Rename Images.bat can number a folder from 000 with --start 0, and that
+    # The rename tool can number a folder from 000 with --start 0, and that
     # is as valid a scheme as one starting at 001. A zero present says which.
     base = 0 if 0 in numbers else 1
-    if max(numbers) - base >= count:
-        return None
+    highest = max(numbers)
+    if highest - base >= count:
+        report["reason"] = {"kind": "past_end",
+                            "name": os.path.basename(images[numbers.index(highest)]),
+                            "number": highest}
+        return report
 
     claimed = {}
     for number, path in zip(numbers, images):
-        if number in claimed:
-            raise RenderError(
-                "Two images both claim line %d: %s and %s.\n"
-                "Images are placed by the number their filename starts with, so "
-                "one number cannot be used twice. Rename one of them."
-                % (number, os.path.basename(claimed[number]), os.path.basename(path))
-            )
-        claimed[number] = path
+        claimed.setdefault(number, []).append(path)
 
     slots = [None] * count
-    for number, path in claimed.items():
-        slots[number - base] = path
-    missing = [index + base for index, path in enumerate(slots) if path is None]
-    return slots, missing
+    for number, paths in claimed.items():
+        slots[number - base] = paths[0]
+    report.update(
+        mode="numbered", base=base, slots=slots,
+        missing=[index + base for index, path in enumerate(slots) if path is None],
+        duplicates=[{"number": number, "names": [os.path.basename(p) for p in paths]}
+                    for number, paths in sorted(claimed.items()) if len(paths) > 1])
+    return report
 
 
 # --------------------------------------------------------------------------

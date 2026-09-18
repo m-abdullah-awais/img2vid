@@ -1,9 +1,16 @@
 temp/
-input/
-output/
-runtime/
-bin/
 claude-*.bat
 __pycache__/
 *.pyc
 *.mp4
+
+# Everything the app installs or makes. Setup.bat fills the first, the app the
+# second, and neither belongs in the repository.
+/backend/runtime/
+/backend/storage/
+
+# Folders from before the web app. The app imports anything left in them.
+/input/
+/output/
+/runtime/
+/bin/

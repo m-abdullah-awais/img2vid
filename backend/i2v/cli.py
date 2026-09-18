@@ -7,7 +7,7 @@ import signal
 import sys
 import time
 
-from . import __version__, probe, render, transcript
+from . import __version__, paths, probe, render, transcript
 
 DEFAULTS = {
     "fps": 30,
@@ -75,7 +75,7 @@ def build_parser():
     parser.add_argument("--dry-run", action="store_true",
                         help="print the resolved timeline and exit without encoding")
     parser.add_argument("--keep-temp", action="store_true",
-                        help="keep the intermediate files in temp/")
+                        help="keep the intermediate files in backend/storage/work")
     parser.add_argument("--quiet", action="store_true", help="suppress progress output")
     parser.add_argument("--version", action="version", version="img2vid " + __version__)
     return parser
@@ -202,8 +202,7 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     started = time.time()
 
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    temp_root = os.path.join(project_root, "temp")
+    temp_root = paths.WORK
     os.makedirs(temp_root, exist_ok=True)
 
     # If this process dies, for any reason including the console window being
@@ -219,7 +218,7 @@ def main(argv=None):
     if args.chunk_size < 1:
         raise SystemExit("--chunk-size must be at least 1.")
 
-    tools = probe.Tools(project_root)
+    tools = probe.Tools(paths.BIN)
     width, height = parse_size(args.size)
 
     starts = [start for start, _ in transcript.parse(args.transcript)]

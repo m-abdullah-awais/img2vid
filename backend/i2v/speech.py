@@ -8,10 +8,12 @@ installed.
 
 Everything lives inside the project folder, per the project rules:
 
-    runtime\whisper\lib      the packages, installed with pip --target
-    runtime\whisper\models   the model weights, in HuggingFace cache layout
+    backend\runtime\whisper\lib      the packages, installed with pip --target
+    backend\runtime\whisper\models   the model weights, in HuggingFace cache layout
 
-Nothing is written to the user profile or anywhere else on the machine.
+Every function here that touches the disk takes the runtime folder, which is
+`paths.RUNTIME` in practice. Nothing is written to the user profile or anywhere
+else on the machine.
 """
 
 import hashlib
@@ -53,16 +55,17 @@ class SpeechError(RuntimeError):
     """Raised when the speech engine is missing, unusable or fails to transcribe."""
 
 
-def root_dir(project_root):
-    return os.path.join(project_root, "runtime", "whisper")
+def root_dir(runtime):
+    """The speech engine's folder, given the project's runtime folder."""
+    return os.path.join(runtime, "whisper")
 
 
-def lib_dir(project_root):
-    return os.path.join(root_dir(project_root), "lib")
+def lib_dir(runtime):
+    return os.path.join(root_dir(runtime), "lib")
 
 
-def models_dir(project_root):
-    return os.path.join(root_dir(project_root), "models")
+def models_dir(runtime):
+    return os.path.join(root_dir(runtime), "models")
 
 
 def python_tag():
@@ -80,7 +83,7 @@ def cache_folder_name(model):
     return "models--" + REPO.replace("/", "--") % model
 
 
-def model_is_local(project_root, model):
+def model_is_local(runtime, model):
     """True when the weights are really on disk, so no network call is needed.
 
     The presence of the folder is not enough to go on. An interrupted download
@@ -89,7 +92,7 @@ def model_is_local(project_root, model):
     never resumed, and every later run fails offline with an incomplete snapshot
     instead of simply finishing the job.
     """
-    folder = os.path.join(models_dir(project_root), cache_folder_name(model))
+    folder = os.path.join(models_dir(runtime), cache_folder_name(model))
     snapshots = os.path.join(folder, "snapshots")
     if not os.path.isdir(snapshots):
         return False
@@ -101,13 +104,13 @@ def model_is_local(project_root, model):
     return False
 
 
-def activate(project_root):
+def activate(runtime):
     """Put the private package folder on sys.path and pin every cache inside it.
 
     Returns the folder. Raises SpeechError if it is missing or was built for a
     different Python.
     """
-    lib = lib_dir(project_root)
+    lib = lib_dir(runtime)
     if not os.path.isdir(lib):
         raise SpeechError(
             "The speech engine is not installed.\n"
@@ -128,7 +131,7 @@ def activate(project_root):
     if lib not in sys.path:
         sys.path.insert(0, lib)
 
-    models = models_dir(project_root)
+    models = models_dir(runtime)
     os.makedirs(models, exist_ok=True)
     # Set before huggingface_hub is imported anywhere. Xet stalls on some
     # networks, and pointing HF_HOME at the project folder guarantees nothing
@@ -140,10 +143,10 @@ def activate(project_root):
     return lib
 
 
-def available(project_root):
+def available(runtime):
     """True when transcription can run right now, without raising."""
     try:
-        activate(project_root)
+        activate(runtime)
     except SpeechError:
         return False
     try:
@@ -153,13 +156,13 @@ def available(project_root):
     return True
 
 
-def download(project_root, model=DEFAULT_MODEL, on_message=None):
+def download(runtime, model=DEFAULT_MODEL, on_message=None):
     """Fetch the weights into the project folder. Safe to re-run."""
     if model not in MODEL_SIZES:
         raise SpeechError("Unknown model %r. Choose one of: %s"
                           % (model, ", ".join(MODEL_SIZES)))
-    activate(project_root)
-    destination = models_dir(project_root)
+    activate(runtime)
+    destination = models_dir(runtime)
     if on_message:
         on_message("  downloading %s into %s" % (REPO % model, destination))
     try:
@@ -257,7 +260,7 @@ def network_problem(error):
     return None
 
 
-def load(project_root, model=DEFAULT_MODEL, compute_type="int8", cpu_threads=0):
+def load(runtime, model=DEFAULT_MODEL, compute_type="int8", cpu_threads=0):
     """Load a model. A copy already on disk is used without touching the network.
 
     Offline is tried first every single time, not only when model_is_local()
@@ -269,7 +272,7 @@ def load(project_root, model=DEFAULT_MODEL, compute_type="int8", cpu_threads=0):
     if model not in MODEL_SIZES:
         raise SpeechError("Unknown model %r. Choose one of: %s"
                           % (model, ", ".join(MODEL_SIZES)))
-    activate(project_root)
+    activate(runtime)
     try:
         from faster_whisper import WhisperModel  # noqa: PLC0415
     except ImportError as error:
@@ -279,7 +282,7 @@ def load(project_root, model=DEFAULT_MODEL, compute_type="int8", cpu_threads=0):
         )
 
     settings = {"device": "cpu", "compute_type": compute_type,
-                "cpu_threads": cpu_threads, "download_root": models_dir(project_root)}
+                "cpu_threads": cpu_threads, "download_root": models_dir(runtime)}
     try:
         return WhisperModel(model, local_files_only=True, **settings)
     except Exception:  # noqa: BLE001 - simply not on disk yet, so go and fetch it
@@ -301,7 +304,7 @@ def load(project_root, model=DEFAULT_MODEL, compute_type="int8", cpu_threads=0):
             "  from where it stopped, or copy this folder from a machine where it\n"
             "  already works:\n"
             "    %s"
-            % (model, problem, models_dir(project_root)))
+            % (model, problem, models_dir(runtime)))
 
 
 def signature(paths, options):
@@ -322,7 +325,7 @@ def signature(paths, options):
     return digest.hexdigest()
 
 
-def transcribe(project_root, audio, duration=None, model=DEFAULT_MODEL, language=None,
+def transcribe(runtime, audio, duration=None, model=DEFAULT_MODEL, language=None,
                beam_size=1, word_timestamps=False, condition=False, batch_size=0,
                compute_type="int8", cpu_threads=0, on_progress=None, on_message=None):
     """Transcribe one audio file into a list of caption cues.
@@ -335,7 +338,7 @@ def transcribe(project_root, audio, duration=None, model=DEFAULT_MODEL, language
     """
     from . import captions  # noqa: PLC0415
 
-    engine = load(project_root, model, compute_type, cpu_threads)
+    engine = load(runtime, model, compute_type, cpu_threads)
 
     settings = {
         "language": language or None,

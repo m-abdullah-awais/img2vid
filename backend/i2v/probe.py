@@ -172,17 +172,17 @@ def _run(args, timeout=120):
     )
 
 
-def _locate(name, project_root):
-    """Prefer a project local binary, then fall back to PATH."""
+def _locate(name, bin_dir):
+    """Prefer the project's private copy, then fall back to PATH."""
     filename = name + ".exe" if os.name == "nt" else name
-    local = os.path.join(project_root, "bin", filename)
+    local = os.path.join(bin_dir, filename)
     if os.path.isfile(local):
         return local
     found = shutil.which(name)
     if not found:
         raise ProbeError(
-            "%s was not found. Install ffmpeg and put it on PATH, or drop "
-            "%s into the project 'bin' folder." % (name, filename)
+            "%s was not found. Run Setup.bat, which puts a private copy in %s, "
+            "or install ffmpeg and put it on PATH." % (name, bin_dir)
         )
     return found
 
@@ -190,10 +190,10 @@ def _locate(name, project_root):
 class Tools:
     """Resolved paths to the ffmpeg and ffprobe binaries."""
 
-    def __init__(self, project_root):
-        self.root = project_root
-        self.ffmpeg = _locate("ffmpeg", project_root)
-        self.ffprobe = _locate("ffprobe", project_root)
+    def __init__(self, bin_dir):
+        self.bin_dir = bin_dir
+        self.ffmpeg = _locate("ffmpeg", bin_dir)
+        self.ffprobe = _locate("ffprobe", bin_dir)
 
 
 def duration(tools, path):

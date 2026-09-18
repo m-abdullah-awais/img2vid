@@ -5,23 +5,26 @@ cd /d "%~dp0"
 rem ==========================================================================
 rem  img2vid setup.
 rem
-rem  Run this once on a new machine, then use Transcribe Audio.bat and
-rem  Create Video.bat.
+rem  Run this once on a new machine, then double click Run.bat.
 rem
 rem  Nothing is installed system wide. Anything this script has to fetch goes
-rem  inside this project folder and is removed if you delete the folder.
+rem  inside backend\runtime in this project folder and is removed if you delete
+rem  the folder.
 rem
-rem    folders : creates input\audio, input\images and output, the folders you
-rem              put your files in. This happens first, before anything else.
 rem    Python  : uses the system one if there is a suitable version on PATH,
-rem              otherwise unpacks a private copy into .\runtime\python
+rem              otherwise unpacks a private copy into backend\runtime\python
 rem    ffmpeg  : uses the system one if ffmpeg and ffprobe are on PATH,
-rem              otherwise unpacks ffmpeg.exe and ffprobe.exe into .\bin
+rem              otherwise unpacks ffmpeg.exe and ffprobe.exe into
+rem              backend\runtime\bin
+rem    Node.js : uses the system one if Node 20 or newer is on PATH, otherwise
+rem              unpacks a private copy into backend\runtime\node
+rem    web app : installs the web app's packages into frontend\node_modules
+rem              and builds it, so the first Run.bat opens quickly
 rem    speech  : installs the offline speech to text engine and its model
-rem              into .\runtime\whisper, for Transcribe Audio.bat
+rem              into backend\runtime\whisper, for transcribing narration
 rem
 rem  Options:
-rem    Setup.bat --local        ignore anything already on PATH, fetch both
+rem    Setup.bat --local        ignore anything already on PATH, fetch all of it
 rem                             locally, for a fully self contained folder
 rem    Setup.bat --check        report what is installed and change nothing
 rem    Setup.bat --no-transcribe  skip the speech engine, video assembly only
@@ -29,9 +32,11 @@ rem    Setup.bat --model small    pre-download a different size (tiny, base, sma
 rem ==========================================================================
 
 set "PYTHON_VERSION=3.12.10"
-set "RUNTIME=%~dp0runtime"
+set "NODE_VERSION=24.11.0"
+set "RUNTIME=%~dp0backend\runtime"
 set "PYDIR=%RUNTIME%\python"
-set "BINDIR=%~dp0bin"
+set "BINDIR=%RUNTIME%\bin"
+set "NODEDIR=%RUNTIME%\node"
 set "DL=%RUNTIME%\download"
 set "WHISPERLIB=%RUNTIME%\whisper\lib"
 
@@ -73,11 +78,11 @@ echo   ============================================================
 echo.
 echo   This prepares img2vid in this folder. It will:
 echo.
-echo     - create the input and output folders
-echo     - install Python and ffmpeg here, but only if they are missing
+echo     - install Python, ffmpeg and Node.js here, only if they are missing
+echo     - install and build the web app
 echo     - install the offline speech engine and its model
 echo.
-echo   The first run downloads up to about 280 MB, and only what this
+echo   The first run downloads up to about 450 MB, and only what this
 echo   machine is actually missing.
 echo.
 echo   Nothing is installed system wide, and nothing outside this folder
@@ -94,17 +99,6 @@ echo   img2vid setup
 echo   ============================================================
 echo.
 
-rem --------------------------------------------------------------------------
-rem  Folders
-rem
-rem  First, before anything that can fail or needs a network. input\ and output\
-rem  are gitignored, and git cannot carry an empty folder in any case, so a fresh
-rem  clone or a downloaded zip arrives without them and every instruction below
-rem  points at a folder that is not there. Creating them at the end instead meant
-rem  that a setup stopping early for an unrelated reason, a download that timed
-rem  out or a failed self check, left the user with nowhere to put their files.
-rem --------------------------------------------------------------------------
-
 rem Explorer will run a batch file straight out of a zip by unpacking it to a
 rem temporary folder, and everything created there is discarded on the way out.
 rem From the outside that looks exactly like Setup having done nothing at all.
@@ -113,27 +107,18 @@ if not "!HERE:\AppData\Local\Temp\=!"=="!HERE!" (
     echo   ERROR: this copy is running from inside a zip file.
     echo.
     echo   Windows unpacked it into a temporary folder, so anything set up here
-    echo   is thrown away again, the input folder included.
+    echo   is thrown away again as soon as it finishes.
     echo.
     echo   Right click the zip, choose Extract All, pick a normal folder such as
     echo   Documents, and run Setup.bat from there.
     goto :finish
 )
 
-if defined CHECK_ONLY goto :folders_check
-call :make_folders
-if errorlevel 1 goto :finish
-echo   [x] folders     input\audio, input\images, output
-goto :folders_done
-
-:folders_check
-if exist "%~dp0input\images" (
-    echo   [x] folders     input and output are in place
-) else (
-    echo   [ ] folders     missing, would create input and output
-)
-
-:folders_done
+rem A copy set up before the web app kept its private Python, ffmpeg and speech
+rem engine in runtime\ and bin\ at the top of the folder. They are moved into
+rem backend\runtime rather than downloaded again, which on a slow connection is
+rem most of what this script would otherwise spend its time on.
+if not defined CHECK_ONLY call :adopt_old_folders
 
 rem --------------------------------------------------------------------------
 rem  Python
@@ -143,7 +128,7 @@ set "PYSOURCE="
 
 if exist "%PYDIR%\python.exe" (
     set "PY=%PYDIR%\python.exe"
-    set "PYSOURCE=local copy in runtime\python"
+    set "PYSOURCE=local copy in backend\runtime\python"
     goto :python_ready
 )
 
@@ -195,14 +180,10 @@ for %%F in ("%PYDIR%\python*._pth") do (
     findstr /b /c:"import site" "%%~F" >nul 2>&1 || echo import site>>"%%~F"
 )
 set "PY=%PYDIR%\python.exe"
-set "PYSOURCE=downloaded into runtime\python"
+set "PYSOURCE=downloaded into backend\runtime\python"
 
 :python_ready
-if defined CHECK_ONLY (
-    echo   [x] Python      %PYSOURCE%
-) else (
-    echo   [x] Python      %PYSOURCE%
-)
+echo   [x] Python      %PYSOURCE%
 
 rem --------------------------------------------------------------------------
 rem  ffmpeg
@@ -211,7 +192,7 @@ rem --------------------------------------------------------------------------
 set "FFSOURCE="
 
 if exist "%BINDIR%\ffmpeg.exe" if exist "%BINDIR%\ffprobe.exe" (
-    set "FFSOURCE=local copy in bin"
+    set "FFSOURCE=local copy in backend\runtime\bin"
     goto :ffmpeg_ready
 )
 
@@ -229,7 +210,7 @@ if not errorlevel 1 (
 :ffmpeg_install
 if defined CHECK_ONLY (
     echo   [ ] ffmpeg      not found, would install locally
-    goto :report
+    goto :node
 )
 echo   [.] ffmpeg      not found on this machine, fetching a private copy
 echo                   this one is around 90 MB, it may take a few minutes
@@ -279,10 +260,109 @@ echo     "%BINDIR%"
 goto :finish
 
 :ffmpeg_copied
-set "FFSOURCE=downloaded into bin"
+set "FFSOURCE=downloaded into backend\runtime\bin"
 
 :ffmpeg_ready
 echo   [x] ffmpeg      %FFSOURCE%
+
+rem --------------------------------------------------------------------------
+rem  Node.js, which serves the web app
+rem --------------------------------------------------------------------------
+:node
+set "NODE="
+set "NODESOURCE="
+
+if exist "%NODEDIR%\node.exe" (
+    set "NODE=%NODEDIR%\node.exe"
+    set "NODESOURCE=local copy in backend\runtime\node"
+    goto :node_ready
+)
+
+if defined LOCAL_ONLY goto :node_install
+
+rem Next.js needs Node 20 or newer, so an older one on PATH counts as missing
+rem rather than failing later with an error that names neither Node nor Next.
+node -e "process.exit(+process.versions.node.split('.')[0]>=20?0:1)" >nul 2>&1
+if not errorlevel 1 (
+    set "NODE=node"
+    set "NODESOURCE=already on PATH"
+    goto :node_ready
+)
+
+:node_install
+if defined CHECK_ONLY (
+    echo   [ ] Node.js     not found, would install locally
+    goto :webapp
+)
+echo   [.] Node.js     not found on this machine, fetching a private copy
+echo                   this one is around 35 MB
+call :fetch "https://nodejs.org/dist/v%NODE_VERSION%/node-v%NODE_VERSION%-win-x64.zip" "%DL%\node.zip"
+if errorlevel 1 (
+    echo.
+    echo   ERROR: could not download Node.js.
+    echo   Check the internet connection, or install Node.js 20 or newer from
+    echo   https://nodejs.org/ and run this again.
+    goto :finish
+)
+call :unzip "%DL%\node.zip" "%DL%\node"
+if errorlevel 1 (
+    echo.
+    echo   ERROR: the Node.js download arrived but could not be unpacked.
+    echo   It is most likely incomplete. Run Setup.bat again.
+    goto :finish
+)
+if exist "%NODEDIR%" rmdir /s /q "%NODEDIR%" 2>nul
+rem The archive holds one folder named for the version, with node.exe inside.
+move "%DL%\node\node-v%NODE_VERSION%-win-x64" "%NODEDIR%" >nul 2>&1
+if not exist "%NODEDIR%\node.exe" (
+    echo   ERROR: the Node.js download did not unpack correctly.
+    goto :finish
+)
+set "NODE=%NODEDIR%\node.exe"
+set "NODESOURCE=downloaded into backend\runtime\node"
+
+:node_ready
+echo   [x] Node.js     %NODESOURCE%
+
+rem --------------------------------------------------------------------------
+rem  The web app
+rem
+rem  Its packages go in frontend\node_modules and npm's download cache goes in
+rem  backend\runtime\npm-cache, so nothing lands in the user profile. Building
+rem  it here means the first Run.bat opens in seconds instead of a minute.
+rem --------------------------------------------------------------------------
+:webapp
+if not exist "%~dp0frontend\package.json" goto :speech
+
+if defined CHECK_ONLY (
+    if exist "%~dp0frontend\.next\BUILD_ID" (
+        echo   [x] web app     installed and built
+    ) else (
+        echo   [ ] web app     not built yet, would install and build it
+    )
+    goto :speech
+)
+
+if /i "%NODE%"=="%NODEDIR%\node.exe" set "PATH=%NODEDIR%;%PATH%"
+set "npm_config_cache=%RUNTIME%\npm-cache"
+set "NEXT_TELEMETRY_DISABLED=1"
+set "WEBAPP_OK="
+pushd "%~dp0frontend"
+echo   [.] web app     installing its packages
+call npm ci --no-audit --no-fund --loglevel=error
+if not errorlevel 1 (
+    echo   [.] web app     building it, about a minute the first time
+    call npm run build
+    if not errorlevel 1 set "WEBAPP_OK=1"
+)
+popd
+if not defined WEBAPP_OK (
+    echo.
+    echo   ERROR: the web app could not be installed or built. See the message
+    echo   above. Run Setup.bat again when the connection is better.
+    goto :finish
+)
+echo   [x] web app     installed and built
 
 rem --------------------------------------------------------------------------
 rem  Speech to text engine
@@ -299,7 +379,7 @@ if defined NO_SPEECH (
 
 if defined CHECK_ONLY (
     if exist "%WHISPERLIB%\faster_whisper" (
-        echo   [x] speech      installed in runtime\whisper\lib
+        echo   [x] speech      installed in backend\runtime\whisper\lib
     ) else (
         echo   [ ] speech      not found, would install locally
     )
@@ -318,24 +398,24 @@ if errorlevel 1 goto :speech_failed
 
 :speech_pip_ready
 if exist "%WHISPERLIB%\faster_whisper" (
-    echo   [x] speech      already installed in runtime\whisper\lib
+    echo   [x] speech      already installed in backend\runtime\whisper\lib
 ) else (
     echo   [.] speech      installing the offline speech engine, around 140 MB
     "%PY%" -m pip install --no-warn-script-location --disable-pip-version-check --target "%WHISPERLIB%" faster-whisper
     if errorlevel 1 goto :speech_failed
-    echo   [x] speech      installed into runtime\whisper\lib
+    echo   [x] speech      installed into backend\runtime\whisper\lib
 )
 
 echo   [.] model       checking for the %SPEECH_MODEL% model, downloaded once
-"%PY%" app\setup_speech.py %SPEECH_MODEL%
+"%PY%" backend\cli\setup_speech.py %SPEECH_MODEL%
 if errorlevel 1 goto :speech_failed
-echo   [x] model       %SPEECH_MODEL%, in runtime\whisper\models
+echo   [x] model       %SPEECH_MODEL%, in backend\runtime\whisper\models
 goto :report
 
 :speech_failed
-echo   [!] speech      could not be installed, so Transcribe Audio.bat will not
-echo                   run yet. Everything else works. Run Setup.bat again when
-echo                   the connection is better, or use --no-transcribe.
+echo   [!] speech      could not be installed, so transcribing narration will
+echo                   not work yet. Everything else works. Run Setup.bat again
+echo                   when the connection is better, or use --no-transcribe.
 
 rem --------------------------------------------------------------------------
 rem  Verify
@@ -349,7 +429,7 @@ if defined CHECK_ONLY (
 echo.
 echo   checking that everything works together
 echo.
-"%PY%" app\setup_check.py
+"%PY%" backend\cli\setup_check.py
 if errorlevel 1 (
     echo.
     echo   Setup did not pass its own check. See the message above.
@@ -363,15 +443,9 @@ echo.
 echo   ============================================================
 echo   Setup complete. Nothing was installed system wide.
 echo.
-echo   Next:
-echo     1. put your narration in  input\audio\
-echo     2. run Transcribe Audio.bat
-echo          writes input\script.srt and tells you how many images you need
-echo     3. put that many images in  input\images\  named 1, 2, 3 ...
-echo     4. run Create Video.bat
-echo          the finished video appears in  output\
-echo.
-echo   Already have a transcript? Put it in input\ and skip step 2.
+echo   Next: double click Run.bat. img2vid opens in your browser, and
+echo   everything from uploading narration to downloading the finished
+echo   video happens there.
 echo   ============================================================
 set "CODE=0"
 goto :finish
@@ -379,19 +453,18 @@ goto :finish
 rem --------------------------------------------------------------------------
 rem  Helpers
 rem --------------------------------------------------------------------------
-:make_folders
-rem The three folders the printed instructions point at. A failure here is
-rem reported rather than swallowed: a folder that cannot be created is a folder
-rem the user cannot drop their audio and images into either.
-for %%D in ("input\audio" "input\images" "output") do (
-    if not exist "%~dp0%%~D" mkdir "%~dp0%%~D" 2>nul
-    if not exist "%~dp0%%~D" (
-        echo   [!] folders     could not create %%~D here.
-        echo                   Windows did not allow writing to this folder.
-        echo                   Move the whole project somewhere like Documents
-        echo                   and run Setup.bat again.
-        exit /b 1
+:adopt_old_folders
+if exist "%~dp0runtime\" if not exist "%RUNTIME%\" (
+    move "%~dp0runtime" "%RUNTIME%" >nul 2>&1
+    if exist "%RUNTIME%\" echo   [x] moved       runtime\ into backend\runtime
+)
+if exist "%~dp0bin\ffmpeg.exe" if not exist "%BINDIR%\ffmpeg.exe" (
+    if not exist "%BINDIR%" mkdir "%BINDIR%"
+    for %%F in (ffmpeg.exe ffprobe.exe) do (
+        if exist "%~dp0bin\%%F" move "%~dp0bin\%%F" "%BINDIR%\%%F" >nul 2>&1
     )
+    rmdir "%~dp0bin" 2>nul
+    if exist "%BINDIR%\ffmpeg.exe" echo   [x] moved       bin\ into backend\runtime\bin
 )
 exit /b 0
 

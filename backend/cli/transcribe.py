@@ -1,24 +1,21 @@
-r"""Zero argument speech to text for img2vid.
+r"""Speech to text for img2vid.
 
-Turns the audio sitting in the input folder into a timestamped transcript, which
-is exactly what the video step then needs. This is what Transcribe Audio.bat
-calls, so there is nothing to type.
+Turns one or more audio files into a timestamped transcript, which is exactly
+what the video step then needs. This is what the web app runs when a project's
+narration is transcribed.
 
-    input\
-      audio\              one or more audio files, joined in name order
+    python backend\cli\transcribe.py -a part1.wav part2.wav --out-dir <folder>
 
-Writes three files, all describing the same cues:
+Several files are joined in the order given, so the timestamps run on across
+them the same way the video joins them. Writes three files into --out-dir, all
+describing the same cues:
 
-    input\script.srt      the transcript the renderer reads
-    input\script.txt      the same thing, readable at a glance
-    temp\script.json      start, end and text, for any other tool
+    script.srt      the transcript the renderer reads
+    script.txt      the same thing, readable at a glance
+    script.json     start, end and text, for any other tool
 
 One cue becomes one image, so the number of cues is the number of images the
 video needs. Use --max-chars or --max-seconds to control that count.
-
-Any extra arguments are passed through, so this still works:
-
-    python app\transcribe.py --model small --max-chars 90
 """
 
 import argparse
@@ -29,14 +26,13 @@ import subprocess
 import sys
 import time
 
-# These launchers live in app\, so the project folder is the one above them.
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+# These scripts live in backend\cli\, and the i2v package sits in backend\.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from i2v import captions, cli, probe, speech  # noqa: E402
-from run import AUDIO, AUDIO_EXTENSIONS, IMAGES, INPUT, OUTPUT, _can_prompt, listing  # noqa: E402
+from i2v import captions, cli, paths, probe, speech  # noqa: E402
 
-TEMP = os.path.join(ROOT, "temp")
+ROOT = paths.ROOT
+TEMP = paths.WORK
 CACHE = os.path.join(TEMP, "transcribe_cache")
 REPLACED = os.path.join(TEMP, "replaced")
 
@@ -48,16 +44,14 @@ JOIN_RATE = 16000
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="transcribe",
-        description="Turn the audio in input\\audio into a timestamped transcript.",
+        description="Turn narration audio into a timestamped transcript.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("-a", "--audio", nargs="+",
-                        help="audio files, defaults to everything in input\\audio")
-    parser.add_argument("--pick", action="store_true",
-                        help="choose which audio file to use instead of joining them all")
+    parser.add_argument("-a", "--audio", nargs="+", required=True,
+                        help="one or more audio files, joined in the order given")
     parser.add_argument("--name", default="script",
                         help="base name for the written files")
-    parser.add_argument("--out-dir", default=INPUT,
+    parser.add_argument("--out-dir", required=True,
                         help="where the transcript is written")
 
     parser.add_argument("--model", default=speech.DEFAULT_MODEL, choices=speech.MODEL_SIZES,
@@ -87,60 +81,9 @@ def build_parser():
     parser.add_argument("--fresh", action="store_true",
                         help="ignore the cached result for this audio")
     parser.add_argument("--keep-temp", action="store_true",
-                        help="keep the intermediate files in temp/")
+                        help="keep the intermediate files in backend/storage/work")
     parser.add_argument("--quiet", action="store_true", help="suppress progress output")
     return parser
-
-
-def explain_setup():
-    print()
-    print("  Nothing to transcribe yet.")
-    print("    missing: audio in input\\audio\\")
-    print()
-    print("  Put your narration here, then run this again:")
-    print()
-    print("    input\\audio\\          one or more audio files, joined in name order")
-    print()
-    print("  The transcript is written to input\\script.srt, ready for Create Video.bat.")
-    print()
-
-
-def discover():
-    """Audio files in natural order, from input\\audio or loose in input."""
-    # input\images and output are made here too, even though this step writes to
-    # neither, because the count this run reports is the number of images the
-    # user then has to drop into input\images. Being sent to a folder that does
-    # not exist is the point at which people assume the tool is broken.
-    for folder in (INPUT, AUDIO, IMAGES, OUTPUT, TEMP):
-        os.makedirs(folder, exist_ok=True)
-    return listing(AUDIO, AUDIO_EXTENSIONS) or listing(INPUT, AUDIO_EXTENSIONS)
-
-
-def choose_audio(found):
-    """Offer the choice between joining every file and using just one.
-
-    Joining is the default because the renderer joins the same files in the same
-    order, so a joined transcript lines up with the video. Picking one is what
-    you want when the folder holds takes or alternatives rather than parts.
-    """
-    print()
-    print("  Which audio should be transcribed?")
-    print()
-    print("    a) all %d files, joined into one continuous transcript" % len(found))
-    for index, path in enumerate(found, start=1):
-        print("    %d) %s" % (index, os.path.basename(path)))
-    print()
-    while True:
-        try:
-            answer = input("  Choose a number, or a for all [a] ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
-            return found
-        if answer in ("", "a", "all"):
-            return found
-        if answer.isdigit() and 1 <= int(answer) <= len(found):
-            return [found[int(answer) - 1]]
-        print("  That is not one of the options.")
 
 
 def join_audio(tools, paths, destination):
@@ -173,8 +116,9 @@ def stash(path):
     """Copy an existing file aside before it is overwritten, and say where.
 
     A transcript can represent a lot of manual correction, so it is never simply
-    replaced. Anything already under temp/ is a byproduct of a previous run and
-    is left alone, otherwise every run would archive its own output.
+    replaced. Anything already under the work folder is a byproduct of a
+    previous run and is left alone, otherwise every run would archive its own
+    output.
     """
     if not os.path.isfile(path):
         return None
@@ -214,27 +158,15 @@ def main(argv=None):
     print("  transcribe")
     print("  " + "-" * 60)
 
-    audio = args.audio or discover()
-    if not audio:
-        explain_setup()
-        return 2
+    audio = args.audio
     for path in audio:
         if not os.path.isfile(path):
             raise SystemExit("File not found: %s" % path)
 
-    if not args.audio and len(audio) > 1:
-        if args.pick and _can_prompt():
-            audio = choose_audio(audio)
-        elif args.pick:
-            print("  --pick needs a console to answer from, joining all %d files"
-                  % len(audio))
-        else:
-            print("  joining all %d audio files, add --pick to choose just one"
-                  % len(audio))
-
+    os.makedirs(TEMP, exist_ok=True)
     probe.bind_children_to_this_process()
     probe.sweep_stale_jobs(TEMP)
-    tools = probe.Tools(ROOT)
+    tools = probe.Tools(paths.BIN)
     duration = probe.total_duration(tools, audio)
 
     for index, path in enumerate(audio):
@@ -246,7 +178,7 @@ def main(argv=None):
     targets = {
         "srt": os.path.join(out_dir, args.name + ".srt"),
         "txt": os.path.join(out_dir, args.name + ".txt"),
-        "json": os.path.join(TEMP, args.name + ".json"),
+        "json": os.path.join(out_dir, args.name + ".json"),
     }
     print("  output     : %s" % os.path.relpath(targets["srt"], ROOT))
 
@@ -269,10 +201,10 @@ def main(argv=None):
             # Before the audio is touched, not after. Joining a dozen files takes
             # half a minute, and finding out at the end of it that the model was
             # never downloaded means that work is thrown away for nothing.
-            if not speech.model_is_local(ROOT, args.model):
+            if not speech.model_is_local(paths.RUNTIME, args.model):
                 print("  model      : %s is not on this machine yet, fetching it first"
                       % args.model, flush=True)
-                speech.download(ROOT, args.model, on_message=notify)
+                speech.download(paths.RUNTIME, args.model, on_message=notify)
 
             source = audio[0]
             if len(audio) > 1:
@@ -282,7 +214,7 @@ def main(argv=None):
                 source = join_audio(tools, audio, os.path.join(job, "narration.wav"))
 
             raw, info = speech.transcribe(
-                ROOT, source, duration=duration, model=args.model,
+                paths.RUNTIME, source, duration=duration, model=args.model,
                 language=args.language, beam_size=args.beam,
                 word_timestamps=word_timestamps, condition=args.condition,
                 batch_size=args.batch, compute_type=args.compute,
@@ -313,7 +245,7 @@ def main(argv=None):
     print("  done in %.1fs  ->  %s  (%d cues, %.1fx realtime)"
           % (elapsed, os.path.relpath(targets["srt"], ROOT), len(cues), duration / elapsed))
     print()
-    print("  Next: put %d images in input\\images\\ then run Create Video.bat" % len(cues))
+    print("  Next: add %d images, one for each line, then build the video" % len(cues))
     print()
     return 0
 

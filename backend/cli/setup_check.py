@@ -1,10 +1,12 @@
 r"""Prove that a freshly set up copy of img2vid actually works.
 
-Setup.bat runs this at the end. It renders a tiny video from material it
-generates itself, then checks the result frame by frame, so a setup that
-reports success really can produce a correct video on this machine.
+Setup.bat runs this at the end, and the web app's System page runs it as its
+self-test. It renders a tiny video from material it generates itself, then
+checks the result frame by frame, so a setup that reports success really can
+produce a correct video on this machine.
 
-Everything it writes goes in temp\setup_check and is deleted afterwards.
+Everything it writes goes in backend\storage\work\setup_check and is deleted
+afterwards.
 """
 
 import os
@@ -12,13 +14,14 @@ import shutil
 import subprocess
 import sys
 
-# This file lives in app\ with the rest of the launchers, and the project
-# folder is the one above it.
+# This file lives in backend\cli\ with the rest of the scripts, and the i2v
+# package sits in backend\ above it.
 APP = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(APP)
-sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(APP))
 
-WORK = os.path.join(ROOT, "temp", "setup_check")
+from i2v import paths  # noqa: E402
+
+WORK = os.path.join(paths.WORK, "setup_check")
 FPS = 30
 TOTAL = 4.0
 # Deliberately not a whole number of frames apart, so the frame quantiser is
@@ -46,11 +49,11 @@ def main():
     check("img2vid modules import", True)
 
     try:
-        tools = probe.Tools(ROOT)
+        tools = probe.Tools(paths.BIN)
     except probe.ProbeError as error:
         check("ffmpeg and ffprobe found", False, str(error))
         return 1
-    where = "bin" if tools.ffmpeg.lower().startswith(os.path.join(ROOT, "bin").lower()) else "PATH"
+    where = "backend\\runtime\\bin" if tools.ffmpeg.lower().startswith(paths.BIN.lower()) else "PATH"
     check("ffmpeg and ffprobe found", True, "using %s" % where)
 
     # ctypes drives the guard that stops encoders when the window is closed.
@@ -82,7 +85,7 @@ def main():
     with open(os.path.join(WORK, "script.srt"), "w", encoding="utf-8", newline="\n") as handle:
         handle.write(captions.srt_from_starts(STARTS, TOTAL))
 
-    encoder = probe.detect_encoder(tools, "auto", os.path.join(ROOT, "temp"))
+    encoder = probe.detect_encoder(tools, "auto", paths.WORK)
     check("an H.264 encoder works", True, "%s selected" % encoder["codec"])
 
     output = os.path.join(WORK, "out.mp4")
@@ -151,10 +154,10 @@ def check_speech(tools):
     """
     from i2v import captions, probe, speech, transcript  # noqa: PLC0415
 
-    if not os.path.isdir(speech.lib_dir(ROOT)):
+    if not os.path.isdir(speech.lib_dir(paths.RUNTIME)):
         print("     [ ] speech to text not installed, skipped")
         return
-    if not speech.available(ROOT):
+    if not speech.available(paths.RUNTIME):
         check("speech engine imports", False, "run Setup.bat again to repair it")
         return
     check("speech engine imports", True)
@@ -163,16 +166,17 @@ def check_speech(tools):
     # one that happens to be on disk.
     model = None
     for size in (speech.DEFAULT_MODEL,) + tuple(speech.MODEL_SIZES):
-        if speech.model_is_local(ROOT, size):
+        if speech.model_is_local(paths.RUNTIME, size):
             model = size
             break
     if model is None:
         check("a speech model is present", False, "run Setup.bat to download one")
         return
-    check("a speech model is present", True, "%s, from runtime\\whisper\\models" % model)
+    check("a speech model is present", True,
+          "%s, from backend\\runtime\\whisper\\models" % model)
 
     try:
-        engine = speech.load(ROOT, model)
+        engine = speech.load(paths.RUNTIME, model)
     except speech.SpeechError as error:
         check("the model loads", False, str(error).splitlines()[0])
         return

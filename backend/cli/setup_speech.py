@@ -1,21 +1,22 @@
 r"""Finish the speech engine install: record the interpreter, fetch the model.
 
-Setup.bat calls this once pip has put the packages into runtime\whisper\lib.
-It is a script rather than an inline one liner because quoting Python inside a
-.bat file is a reliable source of bugs, and this has to get the percent signs in
-a version string right.
+Setup.bat calls this once pip has put the packages into
+backend\runtime\whisper\lib, and the web app's System page calls it to fetch a
+model. It is a script rather than an inline one liner because quoting Python
+inside a .bat file is a reliable source of bugs, and this has to get the percent
+signs in a version string right.
 
-    python app\setup_speech.py [base|tiny|small]
+    python backend\cli\setup_speech.py [base|tiny|small]
 """
 
 import os
 import sys
 
-# These launchers live in app\, so the project folder is the one above them.
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+# These scripts live in backend\cli\, and the i2v package sits in backend\.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from i2v import speech  # noqa: E402
+from i2v.paths import RUNTIME  # noqa: E402
 
 
 def main(argv):
@@ -24,7 +25,7 @@ def main(argv):
         print("   unknown model %r, using %s instead" % (model, speech.DEFAULT_MODEL))
         model = speech.DEFAULT_MODEL
 
-    lib = speech.lib_dir(ROOT)
+    lib = speech.lib_dir(RUNTIME)
     if not os.path.isdir(lib):
         print("   the packages are not in %s" % lib)
         return 1
@@ -36,18 +37,18 @@ def main(argv):
         handle.write(speech.python_tag())
 
     try:
-        speech.activate(ROOT)
+        speech.activate(RUNTIME)
         import faster_whisper  # noqa: F401,PLC0415
     except Exception as error:  # noqa: BLE001
         print("   the speech engine will not import: %s" % error)
         return 1
 
-    if speech.model_is_local(ROOT, model):
+    if speech.model_is_local(RUNTIME, model):
         print("   the %s model is already here, nothing to download" % model)
         return 0
 
     try:
-        speech.download(ROOT, model)
+        speech.download(RUNTIME, model)
     except speech.SpeechError as error:
         print("   %s" % error)
         return 1
@@ -55,7 +56,7 @@ def main(argv):
     # Check rather than trust. A download that is cut off part way still leaves
     # the folder and the metadata behind, and reporting that as success means
     # every later run fails offline instead of resuming.
-    if not speech.model_is_local(ROOT, model):
+    if not speech.model_is_local(RUNTIME, model):
         print("   the %s download did not finish, %s is still missing"
               % (model, speech.WEIGHTS))
         print("   run Setup.bat again, it picks up where this left off")

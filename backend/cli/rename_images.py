@@ -1,7 +1,7 @@
-r"""Renumbers the images in input\images as 001, 002, 003.
+r"""Renumbers a folder of images as 001, 002, 003.
 
-The renderer takes the images in filename order, one per transcript line, so the
-names are what decide which image lands on which line. Camera and download names
+A numbered image is placed on the transcript line its number names, so the names
+are what decide which image lands on which line. Camera and download names
 almost never sort the way the pictures were made:
 
     IMG_20260401_182233.jpg     screenshot (10).png     scene 2.jpeg
@@ -11,7 +11,10 @@ Those are put in the order they were created and renamed
     001.jpg                     002.png                 003.jpeg
 
 Each file keeps its own extension, and anything in the folder that is not an
-image is left alone. This is what Rename Images.bat calls.
+image is left alone. The web app's Renumber and drag to arrange both work
+through the functions in this file, and it still runs from a terminal:
+
+    python backend\cli\rename_images.py -f <images folder>
 
 When the filenames are already numbered, that order is kept instead. The names
 are an order somebody chose, and the date a file was created is only when it
@@ -22,23 +25,22 @@ Pass --by created to sort by date regardless.
 The order is not fixed. Sort by date created, date modified, filename, file
 size, file type or at random, forwards or reversed:
 
-    python app\rename_images.py --by size --desc
-    python app\rename_images.py --by random --seed 7
+    python backend\cli\rename_images.py -f <folder> --by size --desc
+    python backend\cli\rename_images.py -f <folder> --by random --seed 7
 
 An image can also be dropped into the middle of the sequence. Put a new picture
 at number 5 and everything from 5 onward shifts up one, then the whole folder is
 renumbered:
 
-    python app\rename_images.py --insert "C:\shots\new.png" --at 5
+    python backend\cli\rename_images.py -f <folder> --insert "C:\shots\new.png" --at 5
 
 A file from outside is copied in, so the original stays where it was. A file
-already in the folder is moved within the order instead. Double clicking the
-batch file offers the same thing as a question, since there is nowhere to type
-a flag.
+already in the folder is moved within the order instead. Run at a console with
+no flags, it offers the same thing as a question.
 
-Every run records what it did under temp\renames, so
+Every run records what it did under backend\storage\work\renames, so
 
-    python app\rename_images.py --undo
+    python backend\cli\rename_images.py --undo
 
 puts the previous names back.
 """
@@ -50,15 +52,16 @@ import random
 import sys
 import time
 
-# These launchers live in app\, so the project folder is the one above them.
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+# These scripts live in backend\cli\, and the i2v package sits in backend\.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from i2v import cli  # noqa: E402
+from console import can_prompt, confirm  # noqa: E402
+from i2v import cli, paths  # noqa: E402
+from i2v.paths import IMAGE_EXTENSIONS  # noqa: E402
 from i2v.render import natural_key  # noqa: E402
-from run import IMAGES, IMAGE_EXTENSIONS, _can_prompt, _confirm  # noqa: E402
 
-TEMP = os.path.join(ROOT, "temp")
+ROOT = paths.ROOT
+TEMP = paths.WORK
 LOGS = os.path.join(TEMP, "renames")
 
 # Long enough to be worth reading, short enough that the total and the answer to
@@ -102,11 +105,11 @@ INSERTED = "__inserted__"
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="rename_images",
-        description="Renumber the images in input\\images as 001, 002, 003.",
+        description="Renumber a folder of images as 001, 002, 003.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("-f", "--folder", default=IMAGES,
-                        help="the folder to renumber")
+    parser.add_argument("-f", "--folder",
+                        help="the folder to renumber, needed for everything but --undo")
     parser.add_argument("--by", default=argparse.SUPPRESS, choices=tuple(ORDERS),
                         help="what to order the images by. Left out, it is %s, unless"
                              " the filenames are already numbered, in which case that"
@@ -130,7 +133,7 @@ def build_parser():
                         help="the number the image before it should end up at")
     parser.add_argument("--undo", nargs="?", const="", default=None, metavar="RECORD",
                         help="put back the names from the previous run, or from a named"
-                             " record under temp\\renames")
+                             " record under backend\\storage\\work\\renames")
     return parser
 
 
@@ -223,7 +226,7 @@ def ask_for_order(order, desc):
     if order == "random":
         # There is no other way round a shuffle, so do not ask.
         return order, False
-    return order, _confirm("  Reverse it, so the last one becomes 001?")
+    return order, confirm("  Reverse it, so the last one becomes 001?")
 
 
 def ask_what_to_do(folder, count, order, desc):
@@ -250,7 +253,7 @@ def ask_what_to_do(folder, count, order, desc):
         print()
         print("  order     : %s" % order_label(order, desc))
         try:
-            if not _confirm("  Insert an image as well?"):
+            if not confirm("  Insert an image as well?"):
                 return [], [], order, desc
         except (EOFError, KeyboardInterrupt):
             return [], [], order, desc
@@ -346,6 +349,39 @@ def collect(folder, order, desc=False, seed=None):
     return entries
 
 
+def resolve_order(folder, order=None, desc=False, seed=None):
+    """Collect the folder in the order it will be numbered.
+
+    `order` of None means nobody chose one, which is the only case where a
+    folder whose names are already numbered keeps that order instead of the
+    default. Returns the entries, the order and direction actually used, the
+    seed, and `kept`: when the names overruled the default, the label of the
+    order that would have applied and the name it would have put first.
+    """
+    asked_for = order is not None
+    order = order or DEFAULT_ORDER
+
+    # A shuffle nobody can repeat is a shuffle you cannot go back to, so when no
+    # seed was given one is chosen here and reported with the result.
+    if order == "random" and seed is None:
+        seed = random.randrange(1, 1000000)
+
+    entries = collect(folder, order, desc, seed)
+
+    # Filenames that are already numbered are an order somebody chose, and the
+    # date a file was created is not that order. It is when the file arrived on
+    # this machine, so a folder copied in one go carries the time of the copy,
+    # to fractions of a second, in whatever order the copy happened to run. When
+    # that order is backwards the default renames 170.jpg to 001.jpg and reverses
+    # the whole folder, which is what a second machine was doing. The names win.
+    kept = None
+    if not asked_for and numbered_hint(entries, order):
+        kept = (order_label(order, desc), entries[0]["name"])
+        order, desc = "name", False
+        entries = collect(folder, order, desc, seed)
+    return entries, order, desc, seed, kept
+
+
 def plan(entries, digits, start):
     """Pair each current name with the name it should have."""
     # Widened rather than truncated, so 1200 images do not all collide at 999.
@@ -438,6 +474,64 @@ def newest_log():
     return max(paths, key=lambda path: (os.path.getmtime(path), path))
 
 
+def read_record(path):
+    """The folder a record renamed, its moves, and which of its files are gone.
+
+    Only the names the folder is meant to be resting on are checked. Every
+    rename went through a halfway name that is not supposed to exist once the
+    run is over, so checking for those would report every healthy record as
+    broken.
+    """
+    with open(path, "r", encoding="utf-8") as handle:
+        record = json.load(handle)
+    folder = _restored(record["folder"])
+    moves = record["moves"]
+    missing = [destination for _, destination in moves
+               if not destination.startswith(HALFWAY)
+               and not os.path.exists(os.path.join(folder, destination))]
+    return folder, moves, missing
+
+
+def replay(path, folder, moves, on_skip=None):
+    """Put back the names a record changed, then retire the record.
+
+    Returns how many names were put back, how many copied in images were
+    removed, and how many names the record changed in all. `on_skip` hears
+    about each move that could not be reversed.
+    """
+    # Backwards, because the forward moves went through temporary names and the
+    # last one out of a name has to be the first one back into it.
+    restored = 0
+    removed = 0
+    for source, destination in reversed(moves):
+        current = os.path.join(folder, destination)
+        original = os.path.join(folder, source)
+        if not os.path.exists(current):
+            if on_skip:
+                on_skip("%s is no longer there, skipped" % destination)
+            continue
+        # An image this run copied in has no earlier name to go back to. Putting
+        # the folder back as it was means removing the copy.
+        if source.startswith(INSERTED):
+            os.remove(current)
+            removed += 1
+            continue
+        if os.path.exists(original):
+            if on_skip:
+                on_skip("%s is taken, skipped" % source)
+            continue
+        os.rename(current, original)
+        # Every file moved twice on the way out, so only the step that lands on
+        # a name of the user's own counts as a file put back.
+        if not source.startswith(HALFWAY):
+            restored += 1
+
+    os.rename(path, path[:-len(".json")] + ".undone.json")
+    wanted = sum(1 for source, _ in moves
+                 if not source.startswith(HALFWAY) and not source.startswith(INSERTED))
+    return restored, removed, wanted
+
+
 def undo(wanted=None, force=False):
     path = os.path.abspath(wanted) if wanted else newest_log()
     if not path or not os.path.isfile(path):
@@ -449,10 +543,7 @@ def undo(wanted=None, force=False):
         print()
         return 2
 
-    with open(path, "r", encoding="utf-8") as handle:
-        record = json.load(handle)
-    folder = _restored(record["folder"])
-    moves = record["moves"]
+    folder, moves, missing = read_record(path)
 
     print("  record    : %s" % os.path.relpath(path, ROOT))
     print("  folder    : %s" % _shown(folder))
@@ -462,12 +553,6 @@ def undo(wanted=None, force=False):
     # half applied undo is worse than none: it leaves the folder in a state that
     # matches neither the record nor what the user had, and the second half of
     # the record can no longer be trusted to fix it.
-    # Only the names the folder is meant to be resting on. Every rename went
-    # through a halfway name that is not supposed to exist once the run is over,
-    # so checking for those would report every healthy record as broken.
-    missing = [destination for _, destination in moves
-               if not destination.startswith(HALFWAY)
-               and not os.path.exists(os.path.join(folder, destination))]
     if missing and not force:
         print("  This record does not match the folder any more.")
         print("  %d of %d files it expects are not there, starting with %s."
@@ -476,39 +561,13 @@ def undo(wanted=None, force=False):
         print("  Nothing was changed. The folder was probably renamed again since,")
         print("  or these files were moved by hand. Undo the most recent run first,")
         print("  or name the record you want:")
-        print("    Rename Images.bat --undo temp\\renames\\<record>.json")
+        print("    rename_images.py --undo backend\\storage\\work\\renames\\<record>.json")
         print("  Add --yes to undo as much of this record as still applies.")
         print()
         return 2
 
-    # Backwards, because the forward moves went through temporary names and the
-    # last one out of a name has to be the first one back into it.
-    restored = 0
-    removed = 0
-    for source, destination in reversed(moves):
-        current = os.path.join(folder, destination)
-        original = os.path.join(folder, source)
-        if not os.path.exists(current):
-            print("  [!] %s is no longer there, skipped" % destination)
-            continue
-        # An image this run copied in has no earlier name to go back to. Putting
-        # the folder back as it was means removing the copy.
-        if source.startswith(INSERTED):
-            os.remove(current)
-            removed += 1
-            continue
-        if os.path.exists(original):
-            print("  [!] %s is taken, skipped" % source)
-            continue
-        os.rename(current, original)
-        # Every file moved twice on the way out, so only the step that lands on
-        # a name of the user's own counts as a file put back.
-        if not source.startswith(HALFWAY):
-            restored += 1
-
-    os.rename(path, path[:-len(".json")] + ".undone.json")
-    wanted = sum(1 for source, _ in moves
-                 if not source.startswith(HALFWAY) and not source.startswith(INSERTED))
+    restored, removed, wanted = replay(
+        path, folder, moves, on_skip=lambda text: print("  [!] %s" % text))
     print("  put back %d of %d names" % (restored, wanted))
     if removed:
         print("  removed %d image(s) that run had inserted" % removed)
@@ -619,10 +678,7 @@ def _shown(folder):
 def explain_setup(folder):
     print()
     print("  Nothing to rename.")
-    print("    missing: images in %s\\" % _shown(folder))
-    print()
-    print("  Put your images there, then run this again. Any names will do,")
-    print("  this is what puts them in order.")
+    print("    missing: images in %s" % _shown(folder))
     print()
 
 
@@ -636,41 +692,27 @@ def main(argv=None):
     if args.undo is not None:
         return undo(args.undo or None, force=args.yes)
 
+    if not args.folder:
+        print()
+        print("  Say which folder to renumber, with -f <folder>.")
+        print()
+        return 2
     folder = os.path.abspath(args.folder)
-    # Made rather than reported missing, for the same reason the step files make
-    # it: a folder the instructions point at should be there to be opened.
-    os.makedirs(folder, exist_ok=True)
+    if not os.path.isdir(folder):
+        explain_setup(folder)
+        return 2
 
     # SUPPRESS leaves the attribute off entirely when --by was not given, which
     # is the whole point: an explicit --by created still means date order, and
-    # only the unasked for default may be overruled below.
-    asked_for = hasattr(args, "by")
-    order, desc = getattr(args, "by", DEFAULT_ORDER), args.desc
-
-    # A shuffle nobody can repeat is a shuffle you cannot go back to, so when no
-    # seed was given one is chosen here and reported with the result.
-    seed = args.seed
-    if order == "random" and seed is None:
-        seed = random.randrange(1, 1000000)
-
-    entries = collect(folder, order, desc, seed)
-
-    # Filenames that are already numbered are an order somebody chose, and the
-    # date a file was created is not that order. It is when the file arrived on
-    # this machine, so a folder copied in one go carries the time of the copy,
-    # to fractions of a second, in whatever order the copy happened to run. When
-    # that order is backwards the default renames 170.jpg to 001.jpg and reverses
-    # the whole folder, which is what a second machine was doing. The names win.
-    kept = None
-    if not asked_for and numbered_hint(entries, order):
-        kept = (order_label(order, desc), entries[0]["name"])
-        order, desc = "name", False
-        entries = collect(folder, order, desc, seed)
+    # only the unasked for default may be overruled.
+    entries, order, desc, seed, kept = resolve_order(
+        folder, getattr(args, "by", None), args.desc, args.seed)
+    if kept:
         say_kept(kept)
 
     inserts, positions = args.insert or [], args.at or []
     chosen = (order, desc)
-    if not inserts and not args.dry_run and not args.yes and _can_prompt():
+    if not inserts and not args.dry_run and not args.yes and can_prompt():
         inserts, positions, order, desc = ask_what_to_do(folder, len(entries), order, desc)
         if (order, desc) != chosen:
             if order == "random" and args.seed is None:
@@ -718,12 +760,12 @@ def main(argv=None):
         return 0
 
     if not args.yes:
-        if not _can_prompt():
+        if not can_prompt():
             discard_staged(folder, staged)
             print("  Add --yes to rename without a question to answer.")
             print()
             return 2
-        if not _confirm("  Rename %d files?" % len(changing), default_yes=True):
+        if not confirm("  Rename %d files?" % len(changing), default_yes=True):
             discard_staged(folder, staged)
             print("  Nothing was renamed.")
             print()
@@ -750,14 +792,12 @@ def main(argv=None):
     # Offered here, while the result is still on screen and the record is the
     # newest one, so changing your mind costs one keypress instead of a flag.
     # Enter leaves it alone, because that is what almost everyone wants.
-    if record and not args.yes and _can_prompt():
-        if _confirm("  Undo it and put the old names back?"):
+    if record and not args.yes and can_prompt():
+        if confirm("  Undo it and put the old names back?"):
             print()
             return undo(record)
         print()
 
-    print("  Next: run Create Video.bat")
-    print()
     return 0
 
 
@@ -766,7 +806,7 @@ def _files_in(trail):
 
 
 def _undo_hint(record):
-    print("  undo with : Rename Images.bat --undo")
+    print("  undo with : rename_images.py --undo")
     print("  record    : %s" % os.path.relpath(record, ROOT))
 
 
