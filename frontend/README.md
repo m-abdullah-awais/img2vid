@@ -1,36 +1,68 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# img2vid web app
 
-## Getting Started
+The browser side of img2vid. Everything a user does happens here: upload the
+narration, transcribe it or upload a transcript, add one image per transcript
+line, arrange them, build the video, play it and download it. The work itself is
+done by the local engine, a Python API on `http://127.0.0.1:8765`; this app only
+talks to it.
 
-First, run the development server:
+## Running it
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+`Run.bat` at the project root starts the engine and this app together, rebuilds
+the app when its sources change, and opens it at `http://127.0.0.1:3000`.
+`Run.bat --dev` runs the development server instead, for working on the app.
+
+To work on it directly, open a terminal in this folder and keep npm's cache and
+Next.js telemetry inside the project, as the rest of img2vid does:
+
+```bat
+set "npm_config_cache=E:\path\to\img2vid\backend\runtime\npm-cache"
+set NEXT_TELEMETRY_DISABLED=1
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then `npm run dev` for the development server, `npm run lint` for ESLint and
+`npm run build` for a production build. Lint and build are expected to be clean.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The build never needs the engine: every page is a static shell that fetches its
+data in the browser. Without the engine, the app says so and offers Retry.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The API address is `http://127.0.0.1:8765`, set in `src/lib/api.ts`. Set
+`NEXT_PUBLIC_API_URL` at build time to point it elsewhere.
 
-## Learn More
+## Layout
 
-To learn more about Next.js, take a look at the following resources:
+| Path | What it is |
+| --- | --- |
+| `src/app/page.tsx` | Projects: create, rename, delete with Undo |
+| `src/app/projects/[id]/page.tsx` | The studio for one project |
+| `src/app/system/page.tsx` | Tools, speech models, storage and the self-test |
+| `src/app/about-developer/page.tsx` | The developer, and how img2vid is built |
+| `src/components/studio/` | Status strip, coverage timeline, storyboard, videos, banners |
+| `src/components/dialogs/` | Narration, transcript, images, renumber and build dialogs |
+| `src/components/job/` | The job provider, which polls `GET /api/job`, and the job dock |
+| `src/components/ui/` | Dialog on the native `<dialog>`, Button, Field, Toast, Thumb, ProgressBar |
+| `src/lib/types.ts` | The API contract's shapes, field for field |
+| `src/lib/api.ts` | Fetch wrapper, `ApiError`, and the XHR upload that reports progress |
+| `src/lib/arrange.ts` | What a drop will do, worked out before the drop |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Rules this app keeps
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Rendering speed comes first. While a job runs, only `GET /api/job` is polled,
+  every 500 ms, and nothing moves on screen except the progress bar.
+- Images are placed by the number their filename starts with. A line with no
+  image is built black only after the user has confirmed every such line.
+- Colour means state: amber for a line with no image, green for done, red for
+  Build video and for errors. Everything else is graphite, hairlines and type.
+- Type is Barlow at three widths, served from this app. The app makes no request
+  outside this computer.
 
-## Deploy on Vercel
+## Developer
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Muhammad Abdullah Awais, Full Stack Developer
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Website: www.abdullahawais.com
+- Email: contact@abdullahawais.com
+- LinkedIn: https://www.linkedin.com/in/m-abdullah-awais-programmer
+- GitHub: https://github.com/m-abdullah-awais
+- YouTube: https://www.youtube.com/@m_abdullah_awais
+- Instagram: https://www.instagram.com/m_abdullah_awais

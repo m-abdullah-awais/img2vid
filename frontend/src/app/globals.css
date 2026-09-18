@@ -1,26 +1,187 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+  img2vid, the dark editing suite. Colour is used only for state:
+  missing is amber, ready is green, and red belongs to Build video and errors.
+  Everything else is graphite, hairlines and type.
+*/
+
+@theme {
+  --color-*: initial;
+  --color-graphite: #1b1f24;
+  --color-panel: #242a31;
+  --color-text: #e6e8eb;
+  --color-muted: #9aa3ad;
+  --color-hairline: #343b44;
+  --color-missing: #e0a23a;
+  --color-ready: #4fb286;
+  --color-build: #e5484d;
+  /* Text set on a state fill. White on the build red is 3.9:1 and fails AA. */
+  --color-ink: #121519;
+
+  --radius-frame: 2px;
+  --radius-control: 6px;
+
+  /* The classic scale: 12, 14, 16, 18, 21, 24, 36. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.625rem;
+  --text-xl: 1.3125rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 1.875rem;
+  --text-3xl: 2.25rem;
+  --text-3xl--line-height: 2.5rem;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
+  --font-semi: var(--font-barlow-semi), var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
+  --font-cond: var(--font-barlow-cond), var(--font-barlow), ui-sans-serif, system-ui, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  html {
+    color-scheme: dark;
+    background-color: var(--color-graphite);
+    color: var(--color-text);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-text);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-hairline);
+    color: var(--color-text);
+  }
+
+  dialog::backdrop {
+    background-color: rgb(12 14 17 / 0.72);
+  }
+
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Timecodes and line numbers: the semi condensed cut, figures in columns. */
+@utility timecode {
+  font-family: var(--font-semi);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+/* Headings: condensed semibold, used sparingly. */
+@utility heading {
+  font-family: var(--font-cond);
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+/* A line with no image: amber hatching, the same in the timeline and the rows. */
+@utility hatch {
+  background-color: color-mix(in srgb, var(--color-missing) 10%, var(--color-graphite));
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-missing) 85%, transparent) 0 2px,
+    transparent 2px 7px
+  );
+}
+
+/* Unknown progress: a still hatch, never an animation, so a render is not competed with. */
+@utility hatch-muted {
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--color-hairline) 0 2px,
+    transparent 2px 7px
+  );
+}
+
+/* Long lists stay cheap: rows off screen are not laid out or painted. */
+@utility lazy-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 76px;
+}
+
+@utility lazy-cell {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 150px;
+}
+
+/*
+  Motion answers an action and nothing else: a dialog opening, a drop target
+  lighting up, a toast arriving. It is switched off while a job runs, so the
+  only thing moving during a render is its progress bar.
+*/
+.motion-dialog {
+  transition:
+    opacity 140ms ease-out,
+    transform 140ms ease-out;
+}
+@starting-style {
+  .motion-dialog[open] {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.motion-toast {
+  animation: toast-in 160ms ease-out;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.motion-drop {
+  transition:
+    background-color 90ms linear,
+    box-shadow 90ms linear;
+}
+
+.motion-progress {
+  transition: transform 450ms linear;
+}
+
+html[data-job="running"] .motion-dialog,
+html[data-job="running"] .motion-drop {
+  transition: none;
+}
+html[data-job="running"] .motion-toast {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

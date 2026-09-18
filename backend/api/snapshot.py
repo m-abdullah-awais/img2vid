@@ -156,6 +156,25 @@ def _without_pass_line(text):
     return "\n".join(lines).rstrip()
 
 
+def _video_hint(snap):
+    """What the Video step says before the first build, as a status, not a question.
+
+    A gate's own question ("Leave those 3 lines black and build the video?") is
+    the right words inside the Build dialog and the wrong ones on a status line,
+    where nothing is being asked yet.
+    """
+    if snap["blockers"]:
+        return "Cannot build yet: %s" % snap["blockers"][0]["message"].splitlines()[0]
+    for gate in snap["gates"]:
+        if gate["repair"] == "--allow-black":
+            count = len(gate.get("missing") or [])
+            return ("Build will ask first, %d %s would be black."
+                    % (count, "line" if count == 1 else "lines"))
+        if gate["repair"] == "--force":
+            return "Build will ask first, the images and lines do not match."
+    return "Ready to build."
+
+
 def _gate(error, missing=None):
     gate = {"repair": error.repair, "question": error.question,
             "message": _without_pass_line(error)}
@@ -498,13 +517,8 @@ def steps(facts, snap, job):
     if _running(job, "render"):
         video = {"state": "busy", "summary": "Building%s" % _percent(job), "detail": job["phase"]}
     elif newest is None:
-        hint = None
-        if snap["blockers"]:
-            hint = snap["blockers"][0]["message"]
-        elif snap["gates"]:
-            hint = snap["gates"][0]["question"]
         video = {"state": "missing", "summary": "No video yet",
-                 "detail": hint or "Ready to build."}
+                 "detail": _video_hint(snap)}
     elif newest["outdated"]:
         video = {"state": "attention", "summary": "%s, %s" % (newest["name"],
                                                              clock(newest["seconds"])),
