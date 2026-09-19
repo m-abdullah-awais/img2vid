@@ -26,7 +26,9 @@ from i2v import probe
 from . import files, projects
 from .httpio import content_type, invalid, send_file
 
-WIDTHS = (80, 640)
+# Up to 1920 because the preview shows TIFF, which no browser can, through a
+# thumbnail as wide as the stage. Every other format is shown as it is.
+WIDTHS = (80, 1920)
 BACKGROUND_WIDTH = 320
 CONCURRENT = 2
 BROWSER_SHOWS = (".jpg", ".jpeg", ".png", ".webp")
@@ -72,6 +74,10 @@ class Thumbs:
     def pending(self):
         with self._cond:
             return len(self._queue)
+
+    def slot(self):
+        """One of the ffmpeg slots, for other one off media work such as the preview."""
+        return self._slots
 
     def _paused(self):
         return self.app.jobs.running() is not None

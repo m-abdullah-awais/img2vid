@@ -20,7 +20,7 @@ import threading
 
 from i2v import cli, paths, render
 
-from . import files, projects, videos
+from . import files, preview, projects, videos
 from .httpio import api_url
 
 # Bump when the shape changes, so a cached snapshot from the old shape is not reused.
@@ -56,7 +56,7 @@ def image_paths(folder):
 
 
 def audio_paths(app, project_id):
-    return paths.listing(projects.folder(app, project_id, "audio"), paths.AUDIO_EXTENSIONS)
+    return preview.narration_files(app, project_id)
 
 
 def narration_seconds(app, project_id):
@@ -399,6 +399,11 @@ def build(app, stored, version):
                     "seconds": None if seconds is None else round(seconds, 3),
                     "url": api_url("projects", project_id, "audio", os.path.basename(path))}
                    for path, seconds in zip(facts.audio, facts.durations)]
+    try:
+        narration_url, peaks_url = preview.urls(project_id, facts.audio)
+    except OSError:
+        # A file removed between listing and signing; the next snapshot has it right.
+        narration_url, peaks_url = None, None
 
     transcript = None
     if facts.transcript:
@@ -420,7 +425,8 @@ def build(app, stored, version):
         "version": version,
         "steps": None,
         "audio": {"files": audio_files,
-                  "seconds": None if facts.total_audio is None else round(facts.total_audio, 3)},
+                  "seconds": None if facts.total_audio is None else round(facts.total_audio, 3),
+                  "preview": narration_url, "peaks": peaks_url},
         "transcript": transcript,
         "images": images,
         "storyboard": storyboard,

@@ -5,8 +5,8 @@ segment, already URL decoded, so an encoded slash stays inside the segment and
 the name check refuses it. HEAD is answered by the GET route for the same path.
 """
 
-from . import VERSION, arrange, files, projects, render_job, snapshot, system, thumbs, \
-    transcribe_job, trash, videos
+from . import VERSION, arrange, files, preview, projects, render_job, snapshot, system, \
+    thumbs, transcribe_job, trash, videos
 from .httpio import ApiError, invalid, not_found, send_json
 
 
@@ -139,6 +139,8 @@ ROUTES = [
     ("PUT", "api/projects/{id}/audio/{name}", _slot(files.put, "audio")),
     ("GET", "api/projects/{id}/audio/{name}", _slot(files.get, "audio")),
     ("DELETE", "api/projects/{id}/audio/{name}", _slot(files.delete, "audio")),
+    ("GET", "api/projects/{id}/narration", preview.narration_route),
+    ("GET", "api/projects/{id}/narration/peaks", preview.peaks_route),
     ("PUT", "api/projects/{id}/images/{name}", _slot(files.put, "images")),
     ("GET", "api/projects/{id}/images/{name}", _slot(files.get, "images")),
     ("DELETE", "api/projects/{id}/images/{name}", _slot(files.delete, "images")),
