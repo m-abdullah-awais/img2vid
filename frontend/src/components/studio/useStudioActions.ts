@@ -6,13 +6,13 @@ import type {
   ArrangeBody,
   Blocker,
   ArrangePreview,
-  ArrangeResult,
   LineImageResult,
   Project,
   ProjectEnvelope,
   RestoreResult,
   TrashResult,
 } from "@/lib/types";
+import type { ArrangeHistory } from "../editor/useArrangeHistory";
 import { useToast } from "../ui/Toast";
 
 type Options = {
@@ -22,6 +22,8 @@ type Options = {
   /** Asked before the first arrangement of a folder paired by position. */
   confirmNumbering: (body: ArrangeBody, preview: ArrangePreview) => void;
   setUpload: (line: number, progress: number | null) => void;
+  /** Every POST /arrange goes through it, so each one can be undone and redone. */
+  history: ArrangeHistory;
 };
 
 /** What went wrong, in the API's own words, with the specifics its details carry. */
@@ -41,7 +43,7 @@ export function explain(error: ApiError): string {
  * Every change the studio makes, each ending in the project the API sent back
  * and, where the API offers one, an Undo.
  */
-export function useStudioActions({ project, setProject, refetch, confirmNumbering, setUpload }: Options) {
+export function useStudioActions({ project, setProject, refetch, confirmNumbering, setUpload, history }: Options) {
   const { toast } = useToast();
   const current = useRef(project);
   useEffect(() => {
@@ -86,22 +88,8 @@ export function useStudioActions({ project, setProject, refetch, confirmNumberin
     [fail, id, setProject, toast],
   );
 
-  const runArrange = useCallback(
-    async (body: ArrangeBody) => {
-      try {
-        const result = await post<ArrangeResult>(projectPath(id, "arrange"), body);
-        setProject(result.project);
-        toast({
-          tone: "done",
-          message: result.summary || "Arranged",
-          action: result.undoId ? { label: "Undo", run: () => undo(result.undoId) } : undefined,
-        });
-      } catch (error) {
-        fail("Not moved", error);
-      }
-    },
-    [fail, id, setProject, toast, undo],
-  );
+  // The arrangement itself, its toast and its Undo live in the history.
+  const runArrange = history.arrange;
 
   const arrange = useCallback(
     async (body: ArrangeBody) => {

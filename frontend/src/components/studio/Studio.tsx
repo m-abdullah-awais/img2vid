@@ -15,13 +15,15 @@ import { RenumberDialog } from "../dialogs/RenumberDialog";
 import { TranscribeDialog } from "../dialogs/TranscribeDialog";
 import { DownloadTranscriptDialog, EditTranscriptDialog, UploadTranscriptDialog } from "../dialogs/TranscriptDialogs";
 import { UploadNarrationDialog } from "../dialogs/UploadNarrationDialog";
+import { Editor } from "../editor/Editor";
+import { useArrangeHistory } from "../editor/useArrangeHistory";
+import { usePlayback } from "../editor/usePlayback";
 import { busyReason, useEngineOnline, useJob, useJobActions, useJobFinished, useRunning } from "../job/JobProvider";
 import { Button, IconButton } from "../ui/Button";
 import { EngineDown } from "../ui/EngineDown";
 import { useToast } from "../ui/Toast";
 import { ArrangeDnd } from "./ArrangeDnd";
 import { Banners } from "./Banners";
-import { CoverageTimeline } from "./CoverageTimeline";
 import { StatusStrip } from "./StatusStrip";
 import { Storyboard, type Filter, type View } from "./Storyboard";
 import { useStudioActions } from "./useStudioActions";
@@ -70,7 +72,9 @@ export function Studio({ id }: { id: string }) {
       </p>
     );
   }
-  return <StudioView project={project} setProject={setProject} refetch={refetch} />;
+  // Keyed by project, so the preview's narration and the undo history never
+  // carry over from one project to the next.
+  return <StudioView key={project.id} project={project} setProject={setProject} refetch={refetch} />;
 }
 
 function ProjectGone() {
@@ -221,7 +225,16 @@ function StudioView({ project, setProject, refetch }: ViewProps) {
     setDialog({ kind: "arrange", body, preview });
   }, []);
 
-  const actions = useStudioActions({ project, setProject, refetch, confirmNumbering, setUpload });
+  const history = useArrangeHistory({ projectId: project.id, setProject });
+  const actions = useStudioActions({ project, setProject, refetch, confirmNumbering, setUpload, history });
+
+  // The preview's clock. The line it is on is the selected line, which the
+  // editor shows and the storyboard marks.
+  const playback = usePlayback({
+    src: project.audio.preview,
+    lines: project.storyboard,
+    seconds: project.audio.seconds,
+  });
 
   const started = useCallback(
     (job: Job) => {
@@ -257,16 +270,38 @@ function StudioView({ project, setProject, refetch }: ViewProps) {
     (image: string, _from: number, to: number) => void actions.arrange({ op: "place", image, line: to }),
     [actions],
   );
-  const onNudge = useCallback(
-    async (line: number, delta: -1 | 1) => {
+  const onReplace = useCallback(
+    (file: File, line: number) => void actions.uploadToLine(file, line, false),
+    [actions],
+  );
+  /** Swap a line's image with its neighbour's. Resolves to the line it went to, or null. */
+  const nudge = useCallback(
+    async (line: number, delta: -1 | 1): Promise<number | null> => {
       const board = latest.current.storyboard;
       const target = line + delta;
       const slot = board[line - 1];
-      if (!slot?.image || target < 1 || target > board.length || latest.current.locked.images) return;
+      if (!slot?.image || target < 1 || target > board.length || latest.current.locked.images) return null;
       await actions.arrange({ op: "place", image: slot.image.name, line: target });
-      setFocus({ line: target, nonce: Date.now() });
+      return target;
     },
     [actions],
+  );
+  // In the storyboard, focus follows the image to its new row.
+  const onNudge = useCallback(
+    async (line: number, delta: -1 | 1) => {
+      const target = await nudge(line, delta);
+      if (target) setFocus({ line: target, nonce: Date.now() });
+    },
+    [nudge],
+  );
+  // On the timeline, the selection follows it instead, and the page stays where it is.
+  const { seekLine } = playback;
+  const onNudgeClip = useCallback(
+    async (line: number, delta: -1 | 1) => {
+      const target = await nudge(line, delta);
+      if (target) seekLine(target);
+    },
+    [nudge, seekLine],
   );
   const onDrop = useCallback(
     (source: DragSource, target: DropTarget) =>
@@ -341,17 +376,33 @@ function StudioView({ project, setProject, refetch }: ViewProps) {
 
       <StatusStrip project={project} locked={locked} busy={busy} lockedReason={lockedReason} {...strip} />
 
-      <CoverageTimeline lines={project.storyboard} seconds={project.audio.seconds} onSelect={focusLine} />
-
-      <Banners
-        project={project}
-        lockedReason={lockedReason}
-        onRenumber={strip.onRenumber}
-        onTranscribe={strip.onTranscribe}
-        busy={busy}
-      />
-
+      {/* One drag context for the timeline and the storyboard, so an image can go from either to either. */}
       <ArrangeDnd board={board} onDrop={onDrop}>
+        <Editor
+          project={project}
+          playback={playback}
+          history={history}
+          locked={lockImages}
+          lockedReason={lockImages ? lockedReason : null}
+          uploads={uploads}
+          onOpen={onOpen}
+          onFiles={onFiles}
+          onNudge={onNudgeClip}
+          onMove={onMove}
+          onReplace={onReplace}
+          onRemove={actions.removeImage}
+          onShowInStoryboard={focusLine}
+          onNarration={strip.onNarration}
+        />
+
+        <Banners
+          project={project}
+          lockedReason={lockedReason}
+          onRenumber={strip.onRenumber}
+          onTranscribe={strip.onTranscribe}
+          busy={busy}
+        />
+
         <Storyboard
           project={project}
           filter={filter}
@@ -359,6 +410,7 @@ function StudioView({ project, setProject, refetch }: ViewProps) {
           locked={lockImages}
           lockedReason={lockImages ? lockedReason : null}
           uploads={uploads}
+          selectedLine={playback.line}
           onFilter={setFilter}
           onView={setView}
           onRenumber={strip.onRenumber}
@@ -440,7 +492,7 @@ function StudioView({ project, setProject, refetch }: ViewProps) {
           locked={lockImages}
           lockedReason={lockedReason}
           onClose={close}
-          onReplace={(file, line) => void actions.uploadToLine(file, line, false)}
+          onReplace={onReplace}
           onRemove={(name) => void actions.removeImage(name)}
           onMove={onMove}
         />

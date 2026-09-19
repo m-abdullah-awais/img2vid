@@ -1,7 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes } from "react";
 
 export type ButtonVariant = "build" | "primary" | "secondary" | "ghost" | "quiet";
-export type ButtonSize = "sm" | "md";
+export type ButtonSize = "xs" | "sm" | "md";
 
 const base =
   "inline-flex shrink-0 items-center justify-center gap-2 rounded-[var(--radius-control)] font-medium whitespace-nowrap select-none " +
@@ -17,6 +17,7 @@ const variants: Record<ButtonVariant, string> = {
 };
 
 const sizes: Record<ButtonSize, string> = {
+  xs: "h-7 px-3 text-sm",
   sm: "h-8 px-3 text-sm",
   md: "h-10 px-4 text-sm",
 };
@@ -42,7 +43,7 @@ export const IconButton = forwardRef<
   HTMLButtonElement,
   ButtonHTMLAttributes<HTMLButtonElement> & { label: string; size?: ButtonSize }
 >(function IconButton({ label, size = "sm", className = "", type = "button", ...rest }, ref) {
-  const box = size === "sm" ? "h-8 w-8" : "h-10 w-10";
+  const box = size === "xs" ? "h-7 w-7" : size === "sm" ? "h-8 w-8" : "h-10 w-10";
   return (
     <button
       ref={ref}

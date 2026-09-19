@@ -40,8 +40,11 @@ function StepCell({
   step: Step;
   children: ReactNode;
 }) {
+  // The summary and its detail share a line where they fit, so the strip stays
+  // short and the editor under it keeps the height.
+  const joined = step.detail && !/[.!?:]$/.test(step.summary) ? `${step.summary}.` : step.summary;
   return (
-    <li className="grid grid-cols-[1.125rem_minmax(0,1fr)] grid-rows-[auto_1fr_auto] gap-x-1.5 gap-y-1 px-3.5 py-3">
+    <li className="grid grid-cols-[1.125rem_minmax(0,1fr)] grid-rows-[auto_1fr_auto] gap-x-1.5 px-3.5 pt-2 pb-1.5">
       <span className="timecode text-base leading-6 text-muted">{number}</span>
       <div className="flex items-center gap-2">
         <h3 className="font-semibold">{title}</h3>
@@ -52,11 +55,11 @@ function StepCell({
         />
         <span className="sr-only">, {stateWords[step.state]}</span>
       </div>
-      <div className="col-start-2 text-sm">
-        <p className={`break-words ${step.state === "missing" ? "text-muted" : "text-text"}`}>{step.summary}</p>
-        {step.detail ? <p className={`break-words ${stepText[step.state]}`}>{step.detail}</p> : null}
-      </div>
-      <div className="col-start-2 -ml-[5px] flex flex-wrap pt-2">{children}</div>
+      <p className="col-start-2 text-sm break-words">
+        <span className={step.state === "missing" ? "text-muted" : "text-text"}>{step.detail ? joined : step.summary}</span>
+        {step.detail ? <span className={stepText[step.state]}> {step.detail}</span> : null}
+      </p>
+      <div className="col-start-2 -ml-[5px] flex flex-wrap pt-1">{children}</div>
     </li>
   );
 }
@@ -68,7 +71,7 @@ function StepButton({
 }: ComponentProps<typeof Button> & { variant?: ButtonVariant }) {
   // A ghost button's label lines up with the summary above; a filled one lines up by its edge.
   const tight = variant === "ghost" ? "px-[5px]" : "ml-[5px] mr-1";
-  return <Button size="sm" variant={variant} className={`${tight} ${className}`} {...rest} />;
+  return <Button size="xs" variant={variant} className={`${tight} ${className}`} {...rest} />;
 }
 
 /**

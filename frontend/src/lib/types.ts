@@ -104,7 +104,14 @@ export type Project = {
   updatedAt: string;
   version: string;
   steps: { narration: Step; transcript: Step; images: Step; video: Step };
-  audio: { files: AudioFile[]; seconds: number | null };
+  audio: {
+    files: AudioFile[];
+    seconds: number | null;
+    /** The whole narration as one playable stream, versioned. Null without audio. */
+    preview: string | null;
+    /** Its waveform, versioned. Add &perSecond= to it. Null without audio. */
+    peaks: string | null;
+  };
   transcript: { name: string; lines: number; stale: boolean; url: string } | null;
   images: {
     mode: "numbered" | "positional" | "empty";
@@ -140,6 +147,9 @@ export type LineImageResult = {
 };
 
 export type TranscriptResult = { project: Project; linesBefore: number; linesAfter: number };
+
+/** GET narration/peaks: one loudness value, 0..255, per 1 / perSecond seconds. */
+export type Peaks = { seconds: number; perSecond: number; peaks: number[] };
 export type TranscriptRaw = { name: string; text: string; version: string };
 
 export type LogLine = { seq: number; text: string };

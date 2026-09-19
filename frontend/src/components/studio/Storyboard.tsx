@@ -20,6 +20,8 @@ type Props = Omit<RowHandlers, "onPick"> & {
   locked: boolean;
   lockedReason: string | null;
   uploads: Record<number, number>;
+  /** The line selected in the editor, which follows the preview while it plays. */
+  selectedLine: number | null;
   onFilter: (filter: Filter) => void;
   onView: (view: View) => void;
   onRenumber: () => void;
@@ -39,6 +41,7 @@ export const Storyboard = memo(function Storyboard({
   locked,
   lockedReason,
   uploads,
+  selectedLine,
   onFilter,
   onView,
   onRenumber,
@@ -241,12 +244,20 @@ export const Storyboard = memo(function Storyboard({
               locked={locked}
               duplicateNames={duplicates.get(line.line) ?? null}
               progress={uploads[line.line] ?? null}
+              selected={line.line === selectedLine}
               {...handlers}
             />
           ))}
         </div>
       ) : (
-        <GridView lines={shown} total={total} locked={locked} uploads={uploads} {...handlers} />
+        <GridView
+          lines={shown}
+          total={total}
+          locked={locked}
+          uploads={uploads}
+          selectedLine={selectedLine}
+          {...handlers}
+        />
       )}
     </section>
   );

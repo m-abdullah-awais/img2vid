@@ -89,10 +89,14 @@ export function describeDrop(board: Line[], source: DragSource, target: DropTarg
   };
 }
 
-/** Parse the ids the storyboard gives its droppables. */
+/**
+ * Parse the ids the storyboard and the timeline give their droppables. A row,
+ * a grid cell or a clip places; a gap between rows or an edge between clips
+ * inserts.
+ */
 export function parseTarget(id: string | number | null | undefined): DropTarget | null {
   if (typeof id !== "string") return null;
-  const match = /^(line|gap|cell):(\d+)$/.exec(id);
+  const match = /^(line|gap|cell|clip|edge):(\d+)$/.exec(id);
   if (!match) return null;
-  return { op: match[1] === "gap" ? "insert" : "place", line: Number(match[2]) };
+  return { op: match[1] === "gap" || match[1] === "edge" ? "insert" : "place", line: Number(match[2]) };
 }

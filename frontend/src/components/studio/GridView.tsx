@@ -6,7 +6,7 @@ import { pad, shortSeconds, timecode } from "@/lib/format";
 import type { Line } from "@/lib/types";
 import { ProgressBar } from "../ui/ProgressBar";
 import { Thumb } from "../ui/Thumb";
-import { nudgeKey, type RowHandlers } from "./LineRow";
+import { nudgeKey, selectedMark, type RowHandlers } from "./LineRow";
 import { DragHandle, LineTarget } from "./targets";
 
 type CellProps = RowHandlers & {
@@ -14,6 +14,7 @@ type CellProps = RowHandlers & {
   total: number;
   locked: boolean;
   progress: number | null;
+  selected: boolean;
 };
 
 type GridProps = RowHandlers & {
@@ -21,10 +22,11 @@ type GridProps = RowHandlers & {
   total: number;
   locked: boolean;
   uploads: Record<number, number>;
+  selectedLine: number | null;
 };
 
 /** The storyboard as a contact sheet, for judging the pictures rather than the words. */
-export function GridView({ lines, total, locked, uploads, ...handlers }: GridProps) {
+export function GridView({ lines, total, locked, uploads, selectedLine, ...handlers }: GridProps) {
   return (
     <div role="list" aria-label="Storyboard" className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
       {lines.map((line) => (
@@ -34,6 +36,7 @@ export function GridView({ lines, total, locked, uploads, ...handlers }: GridPro
           total={total}
           locked={locked}
           progress={uploads[line.line] ?? null}
+          selected={line.line === selectedLine}
           {...handlers}
         />
       ))}
@@ -47,6 +50,7 @@ export const GridCell = memo(function GridCell({
   total,
   locked,
   progress,
+  selected,
   onOpen,
   onPick,
   onFiles,
@@ -64,8 +68,11 @@ export const GridCell = memo(function GridCell({
       tabIndex={-1}
       role="listitem"
       aria-label={`Line ${line.line}`}
+      aria-current={selected ? "true" : undefined}
       onKeyDown={(event) => nudgeKey(event, line.line, onNudge)}
-      className="lazy-cell flex flex-col gap-1.5 rounded-[var(--radius-control)] p-1.5 focus:outline-2 focus:outline-text"
+      className={`lazy-cell flex flex-col gap-1.5 rounded-[var(--radius-control)] p-1.5 focus:outline-2 focus:outline-text ${
+        selected ? selectedMark : ""
+      }`}
     >
       <div className="relative">
         {image ? (

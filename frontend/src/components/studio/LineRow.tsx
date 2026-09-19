@@ -24,6 +24,8 @@ type Props = RowHandlers & {
   duplicateNames: string[] | null;
   /** 0..1 while a file is uploading onto this line. */
   progress: number | null;
+  /** The line selected in the editor above. */
+  selected: boolean;
 };
 
 /** Alt with an arrow swaps the image with its neighbour. */
@@ -59,6 +61,10 @@ export function StateNote({ line, duplicateNames }: { line: Line; duplicateNames
   return <span className="block truncate text-muted">{line.image?.name}</span>;
 }
 
+/** The line selected in the editor: a panel wash and a bar in the text colour down its left edge. */
+export const selectedMark =
+  "bg-panel/70 before:pointer-events-none before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:bg-text";
+
 /** One transcript line in the list view. Memoised: a drag re-renders its shells, not this. */
 export const LineRow = memo(function LineRow({
   line,
@@ -66,6 +72,7 @@ export const LineRow = memo(function LineRow({
   locked,
   duplicateNames,
   progress,
+  selected,
   onOpen,
   onPick,
   onFiles,
@@ -76,7 +83,7 @@ export const LineRow = memo(function LineRow({
   const image = line.image;
 
   return (
-    <div role="listitem" aria-label={`Line ${line.line}`}>
+    <div role="listitem" aria-label={`Line ${line.line}`} aria-current={selected ? "true" : undefined}>
       <GapTarget line={line.line} onFiles={onFiles} />
       <LineTarget
         dropId={`line:${line.line}`}
@@ -86,7 +93,9 @@ export const LineRow = memo(function LineRow({
         id={`line-${line.line}`}
         tabIndex={-1}
         onKeyDown={(event) => nudgeKey(event, line.line, onNudge)}
-        className="lazy-row grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-[var(--radius-control)] border-b border-hairline px-2 py-2 focus:outline-2 focus:outline-offset-[-2px] focus:outline-text sm:grid-cols-[3rem_4.25rem_8rem_minmax(0,1fr)_auto] sm:items-center sm:gap-x-4 sm:px-3"
+        className={`lazy-row grid grid-cols-[6.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-[var(--radius-control)] border-b border-hairline px-2 py-2 focus:outline-2 focus:outline-offset-[-2px] focus:outline-text sm:grid-cols-[3rem_4.25rem_8rem_minmax(0,1fr)_auto] sm:items-center sm:gap-x-4 sm:px-3 ${
+          selected ? selectedMark : ""
+        }`}
       >
         <div className="timecode flex items-baseline gap-3 max-sm:col-start-2 max-sm:row-start-1 sm:contents">
           <span className={`text-base ${missing ? "text-missing" : "text-text"}`}>{number}</span>
