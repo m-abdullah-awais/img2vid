@@ -37,7 +37,8 @@ The API address is `http://127.0.0.1:8765`, set in `src/lib/api.ts`. Set
 | `src/app/projects/[id]/page.tsx` | The studio for one project |
 | `src/app/system/page.tsx` | Tools, speech models, storage and the self-test |
 | `src/app/about-developer/page.tsx` | The developer, and how img2vid is built |
-| `src/components/studio/` | Status strip, coverage timeline, storyboard, videos, banners |
+| `src/components/studio/` | Status strip, storyboard, videos, banners, drag and drop |
+| `src/components/editor/` | The live preview, its transport, the timeline with image clips and waveform, the inspector, undo and redo |
 | `src/components/dialogs/` | Narration, transcript, images, renumber and build dialogs |
 | `src/components/job/` | The job provider, which polls `GET /api/job`, and the job dock |
 | `src/components/ui/` | Dialog on the native `<dialog>`, Button, Field, Toast, Thumb, ProgressBar |

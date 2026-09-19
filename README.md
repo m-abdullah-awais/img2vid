@@ -153,10 +153,36 @@ says what it has and offers what to do next:
 | **3 Images** | how many lines have their image | **Add images**, or drop them straight onto lines |
 | **4 Video** | the newest video, or what stands in the way | **Build video** |
 
-Below the strip, the **coverage timeline** draws the whole narration as one bar. Each
-line is a segment as wide as it is long, filled with its image, and every line still
-waiting for an image is hatched in amber. A gap anywhere in a long video is visible at
-a glance. Click any segment to jump to that line.
+### Previewing the video while you arrange it
+
+Below the strip is the **editor**: a live preview of the video with a timeline under it,
+so you can watch the result of every change without building anything.
+
+- **The preview** plays your narration and shows each line's image the moment that line
+  is spoken, exactly as the finished video will: same shape, same letterbox or crop, and
+  black on a line with no image. The line being spoken is shown under the picture, so
+  you can check that words and image belong together.
+- **The controls** play and pause, step to the previous or next line, and show the time
+  and *Line 12 of 54*. **Undo** and **redo** cover every arrangement.
+- **The timeline** shows the whole narration at first. Zoom in with **+** and **-**, or
+  hold Ctrl and scroll. The *Images* track has one clip per line, as wide as the line
+  lasts, with its length and start time, and a line still waiting for its image is
+  hatched in amber. The *Voice* track is the narration's waveform, so pauses are easy to
+  see. Click or drag anywhere on the timeline to jump there.
+- **Arrange right on the timeline.** Drag a clip onto another to swap them, or onto the
+  line between two clips to insert it. Drop a file from your computer onto a clip to put
+  it on that line. The preview updates at once and keeps playing from the same moment.
+- **The panel beside the preview** shows the selected line in full: its time, image,
+  narration and file name, with **Replace**, **Remove** and **Move to line**.
+
+Keyboard: **Space** plays and pauses, **Left** and **Right** step between lines,
+**Home** and **End** jump to the start and end, **Ctrl+Z** undoes, **Ctrl+Y** or
+**Ctrl+Shift+Z** redoes, **+** and **-** zoom.
+
+The preview renders nothing: your browser plays the narration and shows the images. It
+is instant, keeps working while a video builds, and never slows a build down. Timing
+always comes from the narration, and the video cuts straight from one image to the next,
+as it is built.
 
 ### Transcribing
 
@@ -523,7 +549,7 @@ backend\
   storage\              your projects, their uploads and videos, and the trash
 frontend\
   src\app\              the pages: projects, a project, system, about the developer
-  src\components\       the storyboard, timeline, dialogs and job dock
+  src\components\       the editor (preview and timeline), storyboard, dialogs and job dock
   src\lib\              the API client, its types and formatting
 ```
 

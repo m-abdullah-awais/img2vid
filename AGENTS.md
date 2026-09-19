@@ -150,6 +150,35 @@ followed a terminal run onto a CPU that was already hot. The fixed script drops
 the same terminal render took 45.3 s and 51.9 s, which is finding 12 again: this laptop
 throttles hard, and any comparison has to interleave.
 
+**Preview and timeline editor, asked for 2026-09-19.** The user sent a screenshot of an
+editor with a video preview, undo and redo, and a timeline with a ruler, image clips,
+an audio waveform and a playhead: "so that the user will be able to see the video
+during the image adjustment". Their decisions:
+- The editor sits on top of the project page, preview and inspector, then the
+  timeline, replacing the coverage bar. The storyboard stays below.
+- Timing follows the narration. Clip edges are not draggable; arranging changes which
+  image is on which line and nothing else. The transcript stays the only source of
+  timing.
+- Hard cuts only. Transitions would mean re-encoding overlaps, which would slow every
+  render, so the screenshot's transition markers are left out on purpose.
+
+How it is built, and why:
+- The preview renders nothing. The browser plays the narration and swaps images at
+  each line's start, using the build settings (aspect, fit, background, black for a
+  missing line) so it looks like the video will. It is instant, works while a video
+  builds, and costs that build nothing.
+- `GET /api/projects/{id}/narration` serves the narration as one stream. A single file
+  a browser can play is sent as it is; several files, or `.wma`, are joined once with
+  the transcription step's concat filter and cached in `work/preview`. The path is
+  `/narration`, not `/audio/preview`, because `/audio/{name}` would have claimed it.
+- `GET .../narration/peaks` is the waveform, the loudest slice scaled to 255 because
+  narration is often recorded quietly and an unscaled waveform shows no pauses.
+  Decoded at 8 kHz mono through `array("h")`, cached as JSON in `work/peaks`.
+- Both run ffmpeg in a thumbnail worker slot and never while a job runs, answering 503
+  `not_ready` instead. Speed stays the priority.
+- Redo re-sends the original arrange request, which gives the same result on the same
+  state. The API has no redo of its own and does not need one.
+
 **Verification of the web app**
 - `temp/check_engine.py`, 27 checks: the engine after the move, placement and
   `placement_report`, the black line gate end to end, the rename round trip.
