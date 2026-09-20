@@ -7,7 +7,7 @@ import signal
 import sys
 import time
 
-from . import __version__, paths, probe, render, transcript
+from . import __version__, captions, paths, probe, render, transcript
 
 DEFAULTS = {
     "fps": 30,
@@ -56,6 +56,22 @@ def build_parser():
                         help="contain letterboxes the image, cover crops it to fill")
     parser.add_argument("--bg", dest="background", default=DEFAULTS["background"],
                         help="letterbox colour used by --fit contain")
+
+    parser.add_argument("--captions", action="store_true",
+                        help="burn each transcript line into the picture while it is "
+                             "spoken. Off unless asked for, and it costs encoding time")
+    parser.add_argument("--caption-place", choices=sorted(captions.PLACES), default="bottom",
+                        help="where the captions sit in the frame")
+    parser.add_argument("--caption-distance", type=float, default=8.0,
+                        help="how far the captions sit from that edge, as a percentage "
+                             "of the frame height. Ignored in the middle")
+    parser.add_argument("--caption-size", choices=sorted(captions.SIZES), default="medium",
+                        help="caption text size, as a share of the frame height")
+    parser.add_argument("--caption-look", choices=sorted(captions.BORDERS), default="outline",
+                        help="outline reads on any picture, band puts the text on a "
+                             "dark strip for busy artwork")
+    parser.add_argument("--caption-font", default="Arial",
+                        help="the font the captions are set in, by name")
 
     parser.add_argument("--jobs", type=int, default=0,
                         help="concurrent encoder processes, 0 chooses a sensible number")
@@ -221,7 +237,9 @@ def main(argv=None):
     tools = probe.Tools(paths.BIN)
     width, height = parse_size(args.size)
 
-    starts = [start for start, _ in transcript.parse(args.transcript)]
+    lines = transcript.parse(args.transcript)
+    starts = [start for start, _ in lines]
+    texts = [text for _, text in lines]
     images = render.find_images(args.images)
     total_audio = probe.total_duration(tools, args.audio)
     def warn(text):
@@ -243,7 +261,7 @@ def main(argv=None):
 
     timeline = render.build_timeline(
         starts, images, total_audio, args.fps,
-        force=args.force, on_warning=None if args.quiet else warn)
+        force=args.force, on_warning=None if args.quiet else warn, texts=texts)
 
     notify = None if args.quiet else (lambda text: print(text, flush=True))
     encoder = probe.detect_encoder(tools, args.encoder, temp_root, notify)
@@ -261,6 +279,12 @@ def main(argv=None):
         "chunk_size": args.chunk_size,
         "audio": [os.path.abspath(item) for item in args.audio],
         "output": os.path.abspath(args.output),
+        # None unless asked for, which is what keeps a plain render exactly as
+        # fast as it was before captions existed.
+        "captions": {"place": args.caption_place,
+                     "distance": max(0.0, args.caption_distance) / 100.0,
+                     "size": args.caption_size, "look": args.caption_look,
+                     "font": args.caption_font} if args.captions else None,
     }
     output_dir = os.path.dirname(options["output"])
     if output_dir:

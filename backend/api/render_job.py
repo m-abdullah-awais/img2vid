@@ -24,6 +24,8 @@ import os
 import re
 import time
 
+from i2v import captions
+
 from . import projects, snapshot, videos
 from .httpio import ApiError, invalid, iso
 
@@ -53,7 +55,36 @@ def parse_settings(body, current):
         raise invalid("background must be a colour name such as black, or a hex colour "
                       "such as #1a1a1a.", {"field": "background"})
     return {"fps": int(fps), "size": "%dx%d" % (width, height), "fit": fit,
-            "background": background}
+            "background": background,
+            "captions": parse_captions(body.get("captions"), current["captions"])}
+
+
+def parse_captions(given, current):
+    """The caption settings, falling back to the project's last used ones."""
+    if given is None:
+        return dict(current)
+    if not isinstance(given, dict):
+        raise invalid("captions must be an object.", {"field": "captions"})
+    merged = dict(current)
+    merged.update({key: given[key] for key in current if key in given})
+    if not isinstance(merged["on"], bool):
+        raise invalid("captions.on must be true or false.", {"field": "captions.on"})
+    if merged["place"] not in captions.PLACES:
+        raise invalid("captions.place must be one of: %s." % ", ".join(sorted(captions.PLACES)),
+                      {"field": "captions.place"})
+    if merged["size"] not in captions.SIZES:
+        raise invalid("captions.size must be one of: %s." % ", ".join(sorted(captions.SIZES)),
+                      {"field": "captions.size"})
+    if merged["look"] not in captions.BORDERS:
+        raise invalid("captions.look must be one of: %s." % ", ".join(sorted(captions.BORDERS)),
+                      {"field": "captions.look"})
+    distance = merged["distance"]
+    if isinstance(distance, bool) or not isinstance(distance, (int, float)) \
+            or not 0 <= distance <= 45:
+        raise invalid("captions.distance is a percentage of the frame height, 0 to 45.",
+                      {"field": "captions.distance"})
+    merged["distance"] = round(float(distance), 1)
+    return merged
 
 
 def _confirmed_lines(body):
@@ -110,6 +141,13 @@ def start(app, request):
                     "-o", output,
                     "--fps", settings["fps"], "--size", settings["size"],
                     "--fit", settings["fit"], "--bg", settings["background"]] + flags
+            spoken = settings["captions"]
+            if spoken["on"]:
+                args += ["--captions",
+                         "--caption-place", spoken["place"],
+                         "--caption-distance", spoken["distance"],
+                         "--caption-size", spoken["size"],
+                         "--caption-look", spoken["look"]]
             projects.update(app, project_id, settings=settings)
 
             def finish(job, state):

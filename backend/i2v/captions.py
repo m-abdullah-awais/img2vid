@@ -125,6 +125,90 @@ def to_json(cues):
 WRITERS = {"srt": to_srt, "vtt": to_vtt, "txt": to_txt, "json": to_json}
 
 
+# --------------------------------------------------------------------------
+# Captions burned into the picture
+# --------------------------------------------------------------------------
+
+# Advanced SubStation, which is what libass renders. It is used rather than an
+# SRT plus force_style because every setting then lives in one file we write:
+# no filter argument to escape, and the same file explains itself when read.
+#
+# Colours are &HAABBGGRR: alpha first, then blue, green, red. So white text is
+# &H00FFFFFF and a half transparent black band is &H80000000.
+_ASS_HEAD = """[Script Info]
+ScriptType: v4.00+
+PlayResX: %(width)d
+PlayResY: %(height)d
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.709
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Caption,%(font)s,%(size)d,&H00FFFFFF,&H00000000,&H80000000,%(bold)d,0,0,0,100,100,0,0,%(border)d,%(outline).1f,0,%(align)d,%(side)d,%(side)d,%(margin)d,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+
+# Where the text sits, as the alignment numbers libass uses.
+PLACES = {"bottom": 2, "middle": 5, "top": 8}
+
+# Cap height as a fraction of the frame, so a caption looks the same at any
+# output size. Measured against 1080p, where medium comes out at 54 pixels.
+SIZES = {"small": 0.040, "medium": 0.050, "large": 0.062}
+
+# An outline reads on any picture. A band is for busy artwork.
+BORDERS = {"outline": 1, "band": 3}
+
+
+def ass_clock(seconds):
+    """ASS wants h:mm:ss.cc, with one digit of hours and hundredths."""
+    hours, rest = divmod(max(0.0, seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+    return "%d:%02d:%05.2f" % (hours, minutes, secs)
+
+
+def ass_text(text):
+    """One cue's text as one ASS line: no newlines, no braces to open a tag."""
+    cleaned = " ".join(str(text).split())
+    return cleaned.replace("\\", "\\\\").replace("{", "(").replace("}", ")")
+
+
+def caption_style(width, height, place="bottom", distance=0.08, size="medium",
+                  look="outline", font="Arial", bold=False):
+    """The numbers that go in the ASS style line, from the settings a user picks.
+
+    `distance` is a fraction of the frame height from the edge the text sits
+    against, and is ignored for the middle, which libass centres regardless.
+    """
+    scale = SIZES.get(size, SIZES["medium"])
+    return {
+        "width": width, "height": height, "font": font,
+        "size": max(10, int(round(height * scale))),
+        "align": PLACES.get(place, PLACES["bottom"]),
+        "border": BORDERS.get(look, BORDERS["outline"]),
+        # Thick enough to hold the letters apart from the picture behind them.
+        "outline": max(1.0, round(height * 0.0022, 1)),
+        "margin": max(0, int(round(height * min(0.45, max(0.0, distance))))),
+        # Kept clear of the sides, so a long line wraps instead of running out.
+        "side": int(round(width * 0.06)),
+        "bold": 1 if bold else 0,
+    }
+
+
+def to_ass(cues, style):
+    """An ASS document for these cues, in the given style from caption_style."""
+    lines = [_ASS_HEAD % style]
+    for cue in cues:
+        text = ass_text(cue.get("text", ""))
+        if not text:
+            continue
+        lines.append("Dialogue: 0,%s,%s,Caption,,0,0,0,,%s\n"
+                     % (ass_clock(cue["start"]), ass_clock(cue["end"]), text))
+    return "".join(lines)
+
+
 def write(path, cues, kind=None):
     """Write cues to path. The format comes from the extension unless given."""
     if kind is None:

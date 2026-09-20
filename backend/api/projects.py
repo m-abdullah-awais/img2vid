@@ -21,7 +21,12 @@ from .httpio import ApiError, invalid, iso, not_found
 
 FOLDERS = ("audio", "images", "transcript", "videos")
 
-DEFAULT_SETTINGS = {"fps": 30, "size": "1920x1080", "fit": "contain", "background": "black"}
+DEFAULT_SETTINGS = {
+    "fps": 30, "size": "1920x1080", "fit": "contain", "background": "black",
+    # Off until asked for, so a plain build stays exactly as fast as it was.
+    "captions": {"on": False, "place": "bottom", "distance": 8, "size": "medium",
+                 "look": "outline"},
+}
 
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 
@@ -114,6 +119,13 @@ def settings(project):
     merged = dict(DEFAULT_SETTINGS)
     stored = project.get("settings") or {}
     merged.update({key: stored[key] for key in DEFAULT_SETTINGS if key in stored})
+    # Captions are a group of their own, so an older project.json written before
+    # they existed, or one holding half of them, still comes back complete.
+    captions = dict(DEFAULT_SETTINGS["captions"])
+    if isinstance(stored.get("captions"), dict):
+        captions.update({key: stored["captions"][key] for key in captions
+                         if key in stored["captions"]})
+    merged["captions"] = captions
     return merged
 
 

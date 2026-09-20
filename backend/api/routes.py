@@ -61,12 +61,25 @@ def get_project(app, request):
 
 
 def patch_project(app, request):
+    """Rename a project, change its build settings, or both.
+
+    The settings are also saved by a build, but the captions toggle has to
+    outlive the page without one, so that turning captions on and coming back
+    tomorrow finds them still on.
+    """
     project_id = request.params["id"]
-    projects.load(app, project_id)
+    stored = projects.load(app, project_id)
     body = request.json()
-    if "name" not in body:
-        raise invalid("Send the new name.", {"field": "name"})
-    projects.update(app, project_id, name=projects.check_name(body["name"]))
+    if "name" not in body and "settings" not in body:
+        raise invalid("Send a new name or new settings.", {"field": "name"})
+    changes = {}
+    if "name" in body:
+        changes["name"] = projects.check_name(body["name"])
+    if "settings" in body:
+        if not isinstance(body["settings"], dict):
+            raise invalid("settings must be an object.", {"field": "settings"})
+        changes["settings"] = render_job.parse_settings(body["settings"], stored["settings"])
+    projects.update(app, project_id, **changes)
     return 200, {"project": snapshot.project(app, project_id)[1]}
 
 
