@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { patch, projectPath, toApiError, type ApiError } from "@/lib/api";
 import type { DragSource, DropTarget } from "@/lib/arrange";
 import { useProject } from "@/lib/hooks/useProject";
+import { readStage, type StageNumber, type StepNumber } from "@/lib/stage";
 import type { ArrangeBody, ArrangePreview, Job, Project, ProjectEnvelope } from "@/lib/types";
 import { AddImagesDialog } from "../dialogs/AddImagesDialog";
 import { ArrangeConfirmDialog } from "../dialogs/ArrangeConfirmDialog";
@@ -23,14 +24,14 @@ import { Button, IconButton } from "../ui/Button";
 import { EngineDown } from "../ui/EngineDown";
 import { useToast } from "../ui/Toast";
 import { ArrangeDnd } from "./ArrangeDnd";
-import { Banners } from "./Banners";
-import { StatusStrip } from "./StatusStrip";
+import { StepPanel, type StepActions } from "./StepPanel";
+import { Stepper } from "./Stepper";
 import { Storyboard, type Filter, type View } from "./Storyboard";
 import { useStudioActions } from "./useStudioActions";
 import { VideosPanel } from "./VideosPanel";
 
 type DialogState =
-  | { kind: "narration" }
+  | { kind: "narration"; files?: File[] }
   | { kind: "transcribe" }
   | { kind: "upload-transcript" }
   | { kind: "edit-transcript" }
@@ -183,6 +184,22 @@ function StudioView({ project, setProject, refetch }: ViewProps) {
   const [view, setView] = useState<View>("list");
   const [uploads, setUploads] = useState<Record<number, number>>({});
   const [focus, setFocus] = useState<{ line: number; nonce: number } | null>(null);
+  // A finished step the reader went back to, tagged with the stage it was
+  // chosen at. So when the project moves on, the panel moves with it: the
+  // stage never goes backwards, only what the panel shows.
+  const [viewing, setViewing] = useState<{ stage: StageNumber; step: StepNumber } | null>(null);
+
+  // Where the project really is, read from the project alone. A reload, or a
+  // job that finished while this page was open, lands on the same step.
+  const stage = useMemo(() => readStage(project), [project]);
+  const shown =
+    viewing && viewing.stage === stage.number && viewing.step <= stage.step ? viewing.step : stage.step;
+  const stageNumber = stage.number;
+  const showStep = useCallback(
+    (step: StepNumber) => setViewing({ stage: stageNumber, step }),
+    [stageNumber],
+  );
+  const showCurrent = useCallback(() => setViewing(null), []);
 
   const latest = useRef(project);
   const filterRef = useRef(filter);
@@ -330,7 +347,7 @@ function StudioView({ project, setProject, refetch }: ViewProps) {
   }, [focus, filter, view]);
 
   const open = useCallback((next: DialogState) => () => setDialog(next), []);
-  const strip = useMemo(
+  const strip = useMemo<StepActions>(
     () => ({
       onNarration: open({ kind: "narration" }),
       onTranscribe: open({ kind: "transcribe" }),
@@ -344,12 +361,23 @@ function StudioView({ project, setProject, refetch }: ViewProps) {
     [open],
   );
 
+  // Dropping narration on the step panel opens the upload dialog holding it.
+  const onNarrationFiles = useCallback((files: File[]) => setDialog({ kind: "narration", files }), []);
+  const onPlay = useCallback(
+    (name: string) => jobs.requestPlay(project.id, name),
+    [jobs, project.id],
+  );
+
   const board = useMemo(
     () => ({ lines: project.storyboard, positional: project.images.mode === "positional", locked: lockImages }),
     [project.storyboard, project.images.mode, lockImages],
   );
 
   const close = useCallback(() => setDialog(null), []);
+
+  // Why Build video cannot run, in the fewest words that still help. A job of
+  // this project's own is named by the dock, so the line only has to point there.
+  const buildStop = busy ? (mine ? "The job at the bottom of this window has to finish first" : busy) : stage.blocked;
 
   return (
     <div className="flex flex-col gap-6">
@@ -361,85 +389,107 @@ function StudioView({ project, setProject, refetch }: ViewProps) {
           <ChevronLeft size={16} aria-hidden />
           Projects
         </Link>
-        <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-4">
           <ProjectTitle project={project} onProject={setProject} />
-          <Button
-            variant="build"
-            onClick={strip.onBuild}
-            disabled={Boolean(busy)}
-            title={busy ?? undefined}
-          >
-            {renderingHere ? "Building video" : "Build video"}
-          </Button>
+          <div className="flex min-w-0 flex-col items-start gap-1 sm:items-end">
+            <Button
+              variant="build"
+              onClick={strip.onBuild}
+              disabled={Boolean(buildStop)}
+              aria-describedby={buildStop ? "build-stop" : undefined}
+              title={buildStop ?? undefined}
+            >
+              {renderingHere ? "Building video" : "Build video"}
+            </Button>
+            {buildStop ? (
+              <p id="build-stop" className="line-clamp-2 max-w-full text-sm text-muted sm:max-w-[34ch] sm:text-right">
+                {buildStop}
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
 
-      <StatusStrip project={project} locked={locked} busy={busy} lockedReason={lockedReason} {...strip} />
+      <Stepper markers={stage.markers} shown={shown} here={stage.step} onSelect={showStep} />
 
-      {/* One drag context for the timeline and the storyboard, so an image can go from either to either. */}
-      <ArrangeDnd board={board} onDrop={onDrop}>
-        <Editor
-          project={project}
-          playback={playback}
-          history={history}
-          locked={lockImages}
-          lockedReason={lockImages ? lockedReason : null}
-          uploads={uploads}
-          onOpen={onOpen}
-          onFiles={onFiles}
-          onNudge={onNudgeClip}
-          onMove={onMove}
-          onReplace={onReplace}
-          onRemove={actions.removeImage}
-          onShowInStoryboard={focusLine}
-          onNarration={strip.onNarration}
-        />
-
-        <Banners
-          project={project}
-          lockedReason={lockedReason}
-          onRenumber={strip.onRenumber}
-          onTranscribe={strip.onTranscribe}
-          busy={busy}
-        />
-
-        <Storyboard
-          project={project}
-          filter={filter}
-          view={view}
-          locked={lockImages}
-          lockedReason={lockImages ? lockedReason : null}
-          uploads={uploads}
-          selectedLine={playback.line}
-          onFilter={setFilter}
-          onView={setView}
-          onRenumber={strip.onRenumber}
-          onAddImages={strip.onAddImages}
-          onTranscribe={strip.onTranscribe}
-          onUploadTranscript={strip.onUploadTranscript}
-          onNarration={strip.onNarration}
-          onRemoveImage={actions.removeImage}
-          transcribing={transcribingHere}
-          onOpen={onOpen}
-          onFiles={onFiles}
-          onNudge={onNudge}
-        />
-      </ArrangeDnd>
-
-      <VideosPanel
-        projectId={project.id}
-        videos={project.videos}
-        onRemove={actions.removeVideo}
-        onBuild={strip.onBuild}
+      <StepPanel
+        project={project}
+        stage={stage}
+        shown={shown}
+        locked={locked}
+        lockedReason={lockedReason}
         busy={busy}
-        ready={project.blockers.length === 0}
+        transcribing={transcribingHere}
+        rendering={renderingHere}
+        actions={strip}
+        onBack={showCurrent}
+        onNarrationFiles={onNarrationFiles}
+        onPlay={onPlay}
       />
+
+      {/* The editor and the storyboard are the tools images are placed with,
+          so they arrive with the images step and not before. */}
+      {stage.number >= 3 ? (
+        /* One drag context for the timeline and the storyboard, so an image can go from either to either. */
+        <ArrangeDnd board={board} onDrop={onDrop}>
+          <Editor
+            project={project}
+            playback={playback}
+            history={history}
+            locked={lockImages}
+            lockedReason={lockImages ? lockedReason : null}
+            uploads={uploads}
+            onOpen={onOpen}
+            onFiles={onFiles}
+            onNudge={onNudgeClip}
+            onMove={onMove}
+            onReplace={onReplace}
+            onRemove={actions.removeImage}
+            onShowInStoryboard={focusLine}
+            onNarration={strip.onNarration}
+          />
+
+          <Storyboard
+            project={project}
+            filter={filter}
+            view={view}
+            locked={lockImages}
+            lockedReason={lockImages ? lockedReason : null}
+            uploads={uploads}
+            selectedLine={playback.line}
+            onFilter={setFilter}
+            onView={setView}
+            onRenumber={strip.onRenumber}
+            onAddImages={strip.onAddImages}
+            onTranscribe={strip.onTranscribe}
+            onUploadTranscript={strip.onUploadTranscript}
+            onNarration={strip.onNarration}
+            onRemoveImage={actions.removeImage}
+            transcribing={transcribingHere}
+            onOpen={onOpen}
+            onFiles={onFiles}
+            onNudge={onNudge}
+          />
+        </ArrangeDnd>
+      ) : null}
+
+      {stage.number >= 5 ? (
+        <VideosPanel
+          projectId={project.id}
+          videos={project.videos}
+          onRemove={actions.removeVideo}
+          onBuild={strip.onBuild}
+          busy={busy}
+          ready={project.blockers.length === 0}
+        />
+      ) : null}
 
       {dialog?.kind === "narration" ? (
         <UploadNarrationDialog
           project={project}
           locked={lockAudio}
           lockedReason={lockedReason}
+          initialFiles={dialog.files}
           onClose={close}
           onProject={setProject}
           refetch={refetch}

@@ -141,21 +141,38 @@ The first page lists your projects, newest first, each with its state in plain w
 Each video is its own project with its own narration, transcript, images and finished
 videos, so starting the next video never touches the last one.
 
-### The four steps
+### One step at a time
 
-A project opens on a strip of four steps, in the order you work through them. Each one
-says what it has and offers what to do next:
+A project opens on a row of four numbered squares, in the order you work through them.
+A finished step is green with a tick and a line of its own, the step you are on carries
+its number, and a step you cannot start yet is drawn in outline. A step that wants
+attention, such as a transcript that cannot be read, turns amber and keeps its number.
 
-| step | what it holds | what you can do |
+Under the row is a panel for the step you are on, and nothing else. It says which step
+it is, what to do now, and why it matters:
+
+| step | the panel says | and offers |
 | --- | --- | --- |
-| **1 Narration** | the audio, with its length | **Upload narration**: one or more audio files, joined in name order |
-| **2 Transcript** | the timed lines | **Transcribe** the narration, **Upload** your own, **Edit** it, **Download** it as SRT or TXT |
-| **3 Images** | how many lines have their image | **Add images**, or drop them straight onto lines |
-| **4 Video** | the newest video, or what stands in the way | **Build video** |
+| **1 Narration** | start with the narration, since everything follows from it | **Upload narration**, or drop audio files on the panel. Several are joined in name order |
+| **2 Transcript** | each line becomes one image, so this decides how many images you need | **Transcribe narration**, **Upload transcript**, **Download transcript** |
+| **3 Images** | which lines are still empty, and how a numbered filename picks its line | **Add images**, or build now and leave the empty lines black |
+| **4 Video** | the size, frame rate and length it will build, then the finished file | **Build video**, then **Play**, **Download** and **Build again** |
+
+Nothing that cannot be used yet is on the page at all: the editor and the storyboard
+arrive with the images step, and the list of videos once one has been built.
+
+Press a finished square to go back to it. Its panel takes the place of the current one,
+with everything that step can do and a link back to where the project really is. The
+project itself never moves backwards, only what the panel shows.
+
+**Build video** stays in the top right at every step, and says why when it cannot run:
+*Add your narration first*, *Transcribe the narration first*, *3 lines still need an
+image*.
 
 ### Previewing the video while you arrange it
 
-Below the strip is the **editor**: a live preview of the video with a timeline under it,
+Once there is a transcript, the **editor** appears: a live preview of the video with a
+timeline under it,
 so you can watch the result of every change without building anything.
 
 - **The preview** plays your narration and shows each line's image the moment that line
@@ -197,6 +214,15 @@ as it is built.
 
 It runs on your computer, at roughly one minute of work for every six to eight
 minutes of narration. A previous transcript is kept in the trash and can be restored.
+When it finishes, the bar at the bottom of the window offers the new transcript as a
+text file, and the transcript step offers it too. It saves as
+`transcript-<project>-<when it was made>.txt`, for example
+`transcript-Florian-2026-09-20_14-30-22.txt`, with a timestamp on every line:
+
+```
+[00:00:00 - 00:00:02] Heute Morgen bist du von einem Stuhl aufgestanden.
+[00:00:02 - 00:00:05] Und in deinem unteren Ruecken hat es gezwickt.
+```
 
 ### Adding and arranging images
 
@@ -549,7 +575,8 @@ backend\
   storage\              your projects, their uploads and videos, and the trash
 frontend\
   src\app\              the pages: projects, a project, system, about the developer
-  src\components\       the editor (preview and timeline), storyboard, dialogs and job dock
+  src\components\       the stepper and its panel, the editor (preview and timeline),
+                        the storyboard, the dialogs and the job dock
   src\lib\              the API client, its types and formatting
 ```
 

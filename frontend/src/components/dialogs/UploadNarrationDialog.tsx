@@ -16,6 +16,8 @@ type Props = {
   project: Project;
   locked: boolean;
   lockedReason: string | null;
+  /** Files already dropped on the narration step, waiting to be sent. */
+  initialFiles?: File[];
   onClose: () => void;
   onProject: (project: Project) => void;
   refetch: () => Promise<void>;
@@ -24,19 +26,32 @@ type Props = {
 
 const ACCEPT = "audio/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus,.wma";
 
+/** One entry per file, named once, in the order they will be joined. */
+function queue(files: File[]): UploadItem[] {
+  const unique = Array.from(new Map(files.map((file) => [file.name, file])).values());
+  unique.sort((a, b) => naturalCompare(a.name, b.name));
+  return unique.map((file) => ({ file, progress: 0, status: "waiting" }));
+}
+
 /** Pick or drop the narration. Several files are joined in name order. */
-export function UploadNarrationDialog({ project, locked, lockedReason, onClose, onProject, refetch, onRemove }: Props) {
+export function UploadNarrationDialog({
+  project,
+  locked,
+  lockedReason,
+  initialFiles,
+  onClose,
+  onProject,
+  refetch,
+  onRemove,
+}: Props) {
   const { toast } = useToast();
-  const [items, setItems] = useState<UploadItem[]>([]);
+  const [items, setItems] = useState<UploadItem[]>(() => queue(initialFiles ?? []));
   const [replace, setReplace] = useState(false);
   const [running, setRunning] = useState(false);
   const existing = project.audio.files;
 
   function add(files: File[]) {
-    const merged = [...items.filter((item) => item.status !== "done").map((item) => item.file), ...files];
-    const unique = Array.from(new Map(merged.map((file) => [file.name, file])).values());
-    unique.sort((a, b) => naturalCompare(a.name, b.name));
-    setItems(unique.map((file) => ({ file, progress: 0, status: "waiting" })));
+    setItems(queue([...items.filter((item) => item.status !== "done").map((item) => item.file), ...files]));
   }
 
   function patchItem(index: number, change: Partial<UploadItem>) {

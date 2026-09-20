@@ -179,6 +179,75 @@ How it is built, and why:
 - Redo re-sends the original arrange request, which gives the same result on the same
   state. The API has no redo of its own and does not need one.
 
+**A guided flow, asked for 2026-09-20.** The user's words: "the user is confused like
+first they upload the audio then they are confused what to do, i want you to make the
+UX of this application such that everything goes step by step, and before completing
+the previous step, the next step will never be shown, also a clear message to be
+displayed to the user". Then: show the steps as markers along the top, "just like they
+were written in the surverys", and make them **square, not round**. The project page
+used to show all four step cards, the editor, the storyboard and the videos panel at
+once, whether or not any of them could be used.
+
+- **The stage is worked out from the project, never from clicks**, in `src/lib/stage.ts`.
+  A reload, a second tab, or a job that finishes while the page is open all land on the
+  same step. Five stages over four squares: no audio, no transcript, an empty line, ready
+  to build, and a video exists, which is still step 4.
+- **The four squares are always visible and only the current one can be used.** Done is
+  green with a tick and is a button back to that step, the current one carries its
+  number in text colour, a step ahead is an outlined square with `aria-disabled` and no
+  summary, and a step that wants attention keeps its number and turns amber. The
+  connector is filled up to the current step and hairline after it. Squares at the 2px
+  frame radius, so they belong with the thumbnails and clips rather than reading as a
+  wizard.
+- **Anything a stage cannot use is not rendered at all.** The editor and storyboard
+  arrive at the images step, the videos panel once a video exists. Stages 1 and 2 are
+  the panel alone. Build video stays in the header at every stage, disabled with a short
+  reason beside it (`Add your narration first`, `3 lines still need an image`).
+- **Going back changes the panel and nothing else.** The chosen step is held with the
+  stage it was chosen at, so when the project moves on the panel moves with it. That
+  also avoids a `setState` in an effect, which this ESLint config rejects outright.
+- **The old `Banners` stack is gone; each banner is rendered inside the step it belongs
+  to**, which is what makes an amber square worth pressing. The locked message moved
+  into the panel, and the step a job belongs to says so itself and points at the dock.
+- **A finished transcription offers the file at once**, in the job dock and in the
+  transcript panel, as a plain link to `transcript/download?format=txt`. Hunting for it
+  in a dialog was the complaint.
+
+**The transcript download and the files that stopped being written, 2026-09-20.**
+- Asked for: "once the transcription completes, create a .txt file for the transcription
+  with timestamped, and let the user to download it make sure that the file name must be
+  the transcript-(project name)-(current timestamp).txt". The text the engine writes is
+  already timestamped line by line, `[00:00:00 - 00:00:02] text`, so only the name and
+  the offer changed.
+- The download is named `transcript-<project name>-<when that transcript was made>.txt`,
+  built by `files.transcript_download_name`. The time is the transcript file's own, not
+  the moment of the click, so saving it twice gives one file rather than two, and two
+  transcriptions are plainly different. The user chose that, and chose naming the
+  download over keeping stamped copies inside the project.
+- `projects.download_stem` keeps the name the user typed and removes only what Windows
+  refuses. `projects.slug` could not be reused: it lowercases and hyphenates, so
+  "Florian" would have arrived as `florian`.
+- Asked for at the same time: "the user will do all the things from the UI only, so if
+  there are unnecessary files are already creating, remove them". The transcription step
+  used to write `script.txt` and `script.json` beside the SRT. Nothing reads either: the
+  transcript in use is chosen `.srt`, `.vtt`, `.txt`, and a download makes text from the
+  SRT on demand. `transcribe.py` gained `--formats`, the app asks for `srt` alone, and
+  `api/tidy.py` clears what earlier runs left at startup: the JSON outright, since a
+  JSON cannot be uploaded as a transcript, and the text copy to the trash in case it was
+  once uploaded rather than generated. Ran against the real storage: both projects now
+  hold one file each and the copies are recoverable.
+- Everything in `backend\storage\work` was audited and kept, since each entry is read
+  again: the encoder choice, the transcription cache, thumbnails, waveforms, the joined
+  preview, rename records, job history, and the in flight upload and render folders.
+- The projects list needed no new words: `status.text` from `snapshot.py` already says
+  Needs narration, Needs a transcript, 3 images missing, Ready to build, Video built.
+- Checked with `temp/stage-check`, eight copies of the Florian project cut back to one
+  stage each, served from a second storage folder so the user's own projects were never
+  touched. Screenshots of every stage at 1440 and 390 in `temp/screens/stages`.
+  Chrome's `--window-size` cannot go below 500 CSS px on Windows, so a phone width has
+  to be set through `Emulation.setDeviceMetricsOverride`; a narrower `--window-size`
+  silently crops the image instead, which reads as a broken layout.
+
 **Verification of the web app**
 - `temp/check_engine.py`, 27 checks: the engine after the move, placement and
   `placement_report`, the black line gate end to end, the rename round trip.

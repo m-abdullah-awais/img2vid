@@ -3,7 +3,7 @@
 import { ChevronDown, ChevronUp, Download, Play, X } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { apiUrl } from "@/lib/api";
+import { apiUrl, projectPath } from "@/lib/api";
 import { duration, prose } from "@/lib/format";
 import { useNow } from "@/lib/hooks/useNow";
 import type { Job } from "@/lib/types";
@@ -182,6 +182,17 @@ export function JobDock() {
                   Download
                 </a>
               </>
+            ) : null}
+            {/* A finished transcript is offered here the way a finished video
+                is, so nobody has to go looking for the file. */}
+            {job.state === "done" && job.kind === "transcribe" && job.projectId ? (
+              <a
+                className={buttonClass("secondary", "sm")}
+                href={apiUrl(`${projectPath(job.projectId, "transcript", "download")}?format=txt`)}
+              >
+                <Download size={15} aria-hidden />
+                Download
+              </a>
             ) : null}
             {!running && job.kind === "transcribe" && job.projectId && !onProject ? (
               <Button size="sm" variant="secondary" onClick={() => router.push(`/projects/${job.projectId}`)}>
