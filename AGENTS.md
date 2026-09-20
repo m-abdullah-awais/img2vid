@@ -248,6 +248,57 @@ once, whether or not any of them could be used.
   to be set through `Emulation.setDeviceMetricsOverride`; a narrower `--window-size`
   silently crops the image instead, which reads as a broken layout.
 
+**Captions burned into the picture, asked for 2026-09-20.** "also there will be an
+option for the user to add the captions also on the video, and adjust their position as
+well, means there is a toggle for the captions". The user chose three places plus a
+distance slider rather than free dragging, both an outline and a band look, and the
+toggle on the editor where it is drawn live.
+
+- **Where the cost was, and where it went.** Burning captions after the images are
+  joined, the obvious way, means libass blends text onto every frame: measured on the
+  real 54 image, 207 s project, best of 3 alternating, that is **53.4 s against 42.3 s,
+  plus 26 percent**. Each image already holds exactly one line, so the words are instead
+  drawn onto that single decoded frame before `loop` repeats it, which rasterises them
+  once per image. Re-measured the same way: **42.2 s with against 43.5 s without**,
+  inside the noise. `temp/bench_captions.py` runs it.
+- **ASS through libass, not drawtext.** This ffmpeg carries libass, harfbuzz and
+  fribidi, so Arabic comes out joined and right to left, which the user's own project
+  needs. `drawtext` would need the shaping done for it. Checked with a frame of their
+  Arabic narration.
+- **The style is written into the ASS file**, not passed as `force_style`. One file says
+  everything, and there is no comma or quote to escape in a filter argument.
+- **The caption file is named without a path and ffmpeg runs with `cwd` set to the job
+  folder.** A Windows drive colon inside a filter argument has to survive two levels of
+  parsing, and every path here contains a space. That cost half an hour: `subtitles=E\:/...`
+  came back as "Error applying option 'original_size'", because the parser had split the
+  path at the colon. A bare name needs no escaping at all.
+- `build_timeline` carries each line's text through every `--force` repair, so a dropped
+  line takes its words with it, and a line with no image still shows its caption over
+  the black frame.
+- Settings live in `project.json` beside the frame rate, default off, and `PATCH
+  /api/projects/{id}` now accepts `{settings}` so the page can save the toggle without
+  starting a build.
+
+**Cleanup.bat, asked for 2026-09-20.** "create a Cleanup.bat file that is responsible to
+cleanup the unncessary things like cleaning the ports, or cleanup the temp files etc
+etc, the user will select any option from 1 to n". A numbered menu in
+`backend\cli\cleanup.py`, with `Cleanup.bat` as a thin launcher, the same shape as
+Run.bat.
+- **No project is ever a target.** Narration, transcripts, images and finished videos
+  are the user's work. The menu says so at the top, and `temp/check_cleanup.py` asserts
+  that no item's paths sit inside `storage\projects`.
+- Each item shows what it is holding before it is chosen, lists what it would remove,
+  and asks. A bare Enter is no, which is the rule the other prompts follow.
+- Stopping the app reads the launcher's pid out of `work\start.json` and kills it, since
+  its job object takes the web app and any ffmpeg with it. A port still held afterwards
+  belongs to something else, so it is named with its process and only stopped if the
+  user says yes. Nothing is killed by matching a path.
+- Clearing the scratch folder keeps `claude-rules.md`, which rule 14 says lives there,
+  and also the `check_` and `bench_` scripts and the contract, because they were lost
+  once already when `temp\` was cleared by hand.
+- It refuses to run without a real console, so a double click works and a pipe does not
+  silently delete things.
+
 **Verification of the web app**
 - `temp/check_engine.py`, 27 checks: the engine after the move, placement and
   `placement_report`, the black line gate end to end, the rename round trip.
