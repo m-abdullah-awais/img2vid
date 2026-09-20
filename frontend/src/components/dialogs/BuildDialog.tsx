@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { post, projectPath, toApiError } from "@/lib/api";
+import { CAPTION_DEFAULTS, captionSummary } from "@/lib/captions";
 import { paragraphs, plural, prose, snippet, timecode } from "@/lib/format";
 import type { Blocker, Gate, Job, Project, RenderBody, RenderSettings } from "@/lib/types";
 import { Banner } from "../studio/Banners";
@@ -45,6 +46,9 @@ export function BuildDialog({ project, busy, onClose, onStarted, onAddImages }: 
     size: project.settings.size || "1920x1080",
     fit: project.settings.fit || "contain",
     background: project.settings.background || "black",
+    // Whatever the editor last saved. They are not changed here, so this
+    // dialog builds exactly what its own summary line describes.
+    captions: project.settings.captions || CAPTION_DEFAULTS,
   }));
   const [colour, setColour] = useState<Colour>(() => colourOf(project.settings.background || "black"));
   const [custom, setCustom] = useState(() =>
@@ -57,6 +61,7 @@ export function BuildDialog({ project, busy, onClose, onStarted, onAddImages }: 
 
   const lines = project.storyboard;
   const background = colour === "custom" ? custom : colour;
+  const captions = captionSummary(settings.captions);
 
   async function send(withFlags: Flags) {
     setSending(true);
@@ -299,6 +304,13 @@ export function BuildDialog({ project, busy, onClose, onStarted, onAddImages }: 
               </label>
             ) : null}
           </div>
+        ) : null}
+
+        {captions ? (
+          <p className="flex items-start gap-2 text-sm text-muted">
+            <span aria-hidden className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-muted" />
+            {captions} Change them on the preview.
+          </p>
         ) : null}
 
         {blackGate && !blockers.length ? (

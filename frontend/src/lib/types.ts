@@ -82,11 +82,26 @@ export type Job = {
   result: { video?: Video; lines?: number; summary?: string } | null;
 };
 
+export type CaptionPlace = "bottom" | "middle" | "top";
+export type CaptionSize = "small" | "medium" | "large";
+export type CaptionLook = "outline" | "band";
+
+/** Words burned into the picture. Off until asked for. */
+export type CaptionSettings = {
+  on: boolean;
+  place: CaptionPlace;
+  /** Percent of the frame height in from that edge, 0 to 45. Middle ignores it. */
+  distance: number;
+  size: CaptionSize;
+  look: CaptionLook;
+};
+
 export type RenderSettings = {
   fps: number;
   size: string;
   fit: "contain" | "cover";
   background: string;
+  captions: CaptionSettings;
 };
 
 export type AudioFile = { name: string; bytes: number; seconds: number | null; url: string };

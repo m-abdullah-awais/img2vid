@@ -249,6 +249,28 @@ a list or as a contact sheet grid. **Missing** filters it to the lines still wai
 Every arrangement, removal and replacement shows an **Undo**. Removed files go to the
 trash for seven days rather than being deleted.
 
+### Captions
+
+Above the preview is a **Captions** switch. Turn it on and each line's words are burned
+into the picture while that line is spoken, drawn on the preview the moment you change
+anything so you can see exactly what the video will look like.
+
+- **Place** the words across the top, the middle or the bottom.
+- **Distance** sets how far in from that edge they sit. The middle is centred, so
+  distance does nothing there.
+- **Size** small, medium or large, measured against the frame, so it looks the same at
+  any output size.
+- **Look** white text with a dark outline, which reads on any picture, or a dark band
+  behind the words for busy artwork.
+
+The words are the transcript lines, so correcting the transcript corrects the captions.
+Any language works, including right to left ones such as Arabic, which are shaped and
+laid out properly rather than shown as separate letters.
+
+**Captions do not slow the build down.** Each line's words are drawn onto its own image
+once, rather than onto every frame, so a build with captions takes the same time as one
+without.
+
 ### Building the video
 
 **Build video** asks for the frame rate, size and fit:
@@ -258,6 +280,9 @@ trash for seven days rather than being deleted.
 - **Size** 1920x1080, 1280x720, or 1080x1920 for vertical video.
 - **Fit** letterbox, which shows the whole image on a coloured background, or fill and
   crop.
+
+It also says whether captions are on and where they will sit, so the last screen before
+building describes exactly what it will produce.
 
 If any line has no image, the build stops and lists every such line with its timecode
 and narration, and offers **Add images first** or **Build with 3 black lines**. A black
@@ -559,6 +584,7 @@ starting processes and muxing are fixed costs.
 ```
 Run.bat                 start img2vid, the one thing to double click day to day
 Setup.bat               the one time setup
+Cleanup.bat             free up ports and disk space, from a numbered menu
 README.md  LICENSE
 backend\
   api\                  the HTTP API the web app talks to, standard library only
@@ -569,6 +595,7 @@ backend\
     setup_check.py      the self test
     setup_speech.py     fetch a speech model
     start.py            what Run.bat runs
+    cleanup.py          what Cleanup.bat runs
   i2v\                  the engine: transcript parsing, placement, timeline, ffmpeg,
                         speech to text, and paths.py, which names every folder
   runtime\              private Python, ffmpeg, Node.js and speech engine, if needed
@@ -601,9 +628,11 @@ python backend\cli\rename_images.py -f .\images --dry-run
 ```
 
 `img2vid.py --help` lists every option, including `--fps`, `--size`, `--fit`, `--bg`,
-`--dry-run` to print the timeline without encoding, `--allow-black` to confirm missing
-lines in advance, and `--force` to build an unnumbered folder whose count does not
-match. `--force` deliberately does not cover missing lines.
+`--captions` with `--caption-place`, `--caption-distance`, `--caption-size`,
+`--caption-look` and `--caption-font`, `--dry-run` to print the timeline without
+encoding, `--allow-black` to confirm missing lines in advance, and `--force` to build an
+unnumbered folder whose count does not match. `--force` deliberately does not cover
+missing lines.
 
 **Run the API on its own**, against a scratch storage folder so your projects are not
 touched:

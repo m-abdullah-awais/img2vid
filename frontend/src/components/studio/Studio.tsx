@@ -434,6 +434,7 @@ function StudioView({ project, setProject, refetch }: ViewProps) {
         <ArrangeDnd board={board} onDrop={onDrop}>
           <Editor
             project={project}
+            setProject={setProject}
             playback={playback}
             history={history}
             locked={lockImages}

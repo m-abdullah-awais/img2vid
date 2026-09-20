@@ -3,20 +3,23 @@
 import { memo, useEffect, useRef, type CSSProperties } from "react";
 import { apiUrl } from "@/lib/api";
 import { frameSize, stageColour, stageSrc } from "@/lib/timeline";
-import type { Line, RenderSettings } from "@/lib/types";
+import type { CaptionSettings, Line, RenderSettings } from "@/lib/types";
+import { CaptionLayer } from "./CaptionLayer";
 
 type Props = {
   /** The line on screen, or null when there are no lines yet. */
   line: Line | null;
   settings: RenderSettings;
+  /** Captions as they are being adjusted, which is ahead of the saved ones. */
+  captions: CaptionSettings;
   /** Said on the stage when there is nothing to show, such as before a transcript. */
   note: string | null;
   onToggle: () => void;
 };
 
 /**
- * The video frame as the build will make it: its aspect ratio, its fit and its
- * background, letterboxed inside a darker viewing well.
+ * The video frame as the build will make it: its aspect ratio, its fit, its
+ * background and its captions, letterboxed inside a darker viewing well.
  *
  * Two <img> layers take turns. The next image loads and decodes in the hidden
  * one, and only then do they swap, so a cut is always from one picture
@@ -24,7 +27,7 @@ type Props = {
  * is a full black frame whatever the background is, because that is what the
  * engine renders for it.
  */
-export const PreviewStage = memo(function PreviewStage({ line, settings, note, onToggle }: Props) {
+export const PreviewStage = memo(function PreviewStage({ line, settings, captions, note, onToggle }: Props) {
   const { width, height } = frameSize(settings.size);
   const colour = stageColour(settings.background);
   const fit = settings.fit === "cover" ? "object-cover" : "object-contain";
@@ -115,6 +118,9 @@ export const PreviewStage = memo(function PreviewStage({ line, settings, note, o
         {/* eslint-disable-next-line @next/next/no-img-element -- runtime URLs from the local engine */}
         <img ref={second} alt="" draggable={false} className={`absolute inset-0 h-full w-full ${fit}`} />
         <div ref={black} hidden className="absolute inset-0 bg-[#000]" />
+        {/* Above the black cover, because the engine burns a line's words onto
+            its black frame too. */}
+        <CaptionLayer text={line?.text ?? ""} settings={captions} size={settings.size} />
         {note ? (
           <p className="absolute inset-0 flex items-center justify-center p-6 text-center text-sm text-muted">
             <span className="max-w-[40ch] rounded-[var(--radius-control)] bg-graphite/90 px-3 py-2">{note}</span>

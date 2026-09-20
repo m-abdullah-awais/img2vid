@@ -7,15 +7,19 @@ import { onScreenFrom } from "@/lib/timeline";
 import type { Project } from "@/lib/types";
 import { useJobFinished, useRunning } from "../job/JobProvider";
 import { Button } from "../ui/Button";
+import { CaptionsBar } from "./CaptionsBar";
 import { Inspector } from "./Inspector";
 import { PreviewStage } from "./PreviewStage";
 import { Timeline, type TimelineHandle } from "./Timeline";
 import { Transport, useEditorKeys } from "./Transport";
 import type { ArrangeHistory } from "./useArrangeHistory";
+import { useCaptions } from "./useCaptions";
 import type { Playback } from "./usePlayback";
 
 type Props = {
   project: Project;
+  /** Takes the project a save handed back, instead of fetching it again. */
+  setProject: (project: Project) => void;
   playback: Playback;
   history: ArrangeHistory;
   /** Images are locked by a job, so nothing can be arranged. */
@@ -39,6 +43,7 @@ type Props = {
  */
 export function Editor({
   project,
+  setProject,
   playback,
   history,
   locked,
@@ -61,6 +66,7 @@ export function Editor({
   const current = line !== null ? (lines[line - 1] ?? null) : null;
   const from = line !== null ? onScreenFrom(lines, line - 1) : 0;
   const hasNarration = Boolean(project.audio.preview);
+  const captions = useCaptions(project, setProject);
 
   // The joined narration is not made while a job runs; ask again once it ends.
   useJobFinished(() => {
@@ -124,7 +130,9 @@ export function Editor({
       observer.disconnect();
       window.removeEventListener("resize", fit);
     };
-  }, [hasNarration]);
+    // The captions row is one of the controls above the well, so opening it
+    // takes its height off the stage rather than off the window.
+  }, [hasNarration, captions.captions.on]);
 
   if (!hasNarration) {
     return (
@@ -162,9 +170,15 @@ export function Editor({
     >
       <div className="grid lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="flex min-w-0 flex-col">
+          <CaptionsBar
+            captions={captions.captions}
+            change={captions.change}
+            commit={captions.commit}
+          />
           <PreviewStage
             line={current}
             settings={project.settings}
+            captions={captions.captions}
             note={total ? null : "Each line's image appears here once the narration is transcribed."}
             onToggle={toggle}
           />
