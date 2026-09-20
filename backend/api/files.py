@@ -9,6 +9,7 @@ folder, so neither an encoded separator nor a junction can reach outside it.
 import hashlib
 import os
 import secrets
+import time
 
 import rename_images
 from i2v import captions, paths
@@ -372,6 +373,21 @@ def put_raw(app, request):
     return reply(app, request, project_id, 200, linesBefore=before, linesAfter=len(lines))
 
 
+def transcript_download_name(project, path):
+    """transcript-<project name>-<when this transcript was made>, without an extension.
+
+    The time is the transcript's own, not the moment of the click, so saving it
+    twice gives one file rather than two, and two transcriptions of the same
+    project are plainly different files.
+    """
+    try:
+        made = time.localtime(os.path.getmtime(path))
+    except OSError:
+        made = time.localtime()
+    return "transcript-%s-%s" % (projects.download_stem(project),
+                                 time.strftime("%Y-%m-%d_%H-%M-%S", made))
+
+
 def download_transcript(app, request):
     """GET /transcript/download?format=srt|txt, or the original file with no format."""
     project_id = request.params["id"]
@@ -383,7 +399,7 @@ def download_transcript(app, request):
     if wanted not in ("", "srt", "txt"):
         raise invalid("format is srt or txt.")
     extension = os.path.splitext(path)[1].lower()
-    stem = projects.slug(project["name"])
+    stem = transcript_download_name(project, path)
     if not wanted or extension == "." + wanted:
         send_file(request.handler, path, content_type(path),
                   download=stem + extension, head=request.method == "HEAD")

@@ -40,6 +40,10 @@ REPLACED = os.path.join(TEMP, "replaced")
 # does the conversion once instead of twice.
 JOIN_RATE = 16000
 
+# What this script can write, in the order it prefers them. The renderer reads
+# the SRT; the other two are for a person or another tool.
+FORMATS = ("srt", "txt", "json")
+
 
 def build_parser():
     parser = argparse.ArgumentParser(
@@ -53,6 +57,10 @@ def build_parser():
                         help="base name for the written files")
     parser.add_argument("--out-dir", required=True,
                         help="where the transcript is written")
+    parser.add_argument("--formats", default=",".join(FORMATS),
+                        help="which of %s to write, separated by commas. The web app "
+                             "asks for srt alone, since it makes the others on demand"
+                             % ", ".join(FORMATS))
 
     parser.add_argument("--model", default=speech.DEFAULT_MODEL, choices=speech.MODEL_SIZES,
                         help="larger is more accurate and slower")
@@ -175,12 +183,14 @@ def main(argv=None):
 
     out_dir = args.out_dir
     os.makedirs(out_dir, exist_ok=True)
-    targets = {
-        "srt": os.path.join(out_dir, args.name + ".srt"),
-        "txt": os.path.join(out_dir, args.name + ".txt"),
-        "json": os.path.join(out_dir, args.name + ".json"),
-    }
-    print("  output     : %s" % os.path.relpath(targets["srt"], ROOT))
+    wanted = [kind.strip().lower() for kind in args.formats.split(",") if kind.strip()]
+    unknown = [kind for kind in wanted if kind not in FORMATS]
+    if unknown or not wanted:
+        raise SystemExit("--formats takes any of %s, separated by commas."
+                         % ", ".join(FORMATS))
+    targets = {kind: os.path.join(out_dir, args.name + "." + kind) for kind in FORMATS
+               if kind in wanted}
+    print("  output     : %s" % os.path.relpath(list(targets.values())[0], ROOT))
 
     options = {"model": args.model, "language": args.language, "beam": args.beam,
                "batch": args.batch, "compute": args.compute, "condition": args.condition,
@@ -243,7 +253,8 @@ def main(argv=None):
 
     elapsed = max(1e-6, time.time() - started)
     print("  done in %.1fs  ->  %s  (%d cues, %.1fx realtime)"
-          % (elapsed, os.path.relpath(targets["srt"], ROOT), len(cues), duration / elapsed))
+          % (elapsed, os.path.relpath(list(targets.values())[0], ROOT), len(cues),
+             duration / elapsed))
     print()
     print("  Next: add %d images, one for each line, then build the video" % len(cues))
     print()

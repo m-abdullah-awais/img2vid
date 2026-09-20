@@ -16,7 +16,8 @@ the cross site text/plain POST that needs no preflight is closed too.
 On startup, before it answers anything, it: sweeps half received uploads and
 half built renders, purges trash older than seven days, puts itself in a job
 object so no ffmpeg can outlive it, marks any job left running as interrupted,
-and imports the pre web app folders when running on the default storage.
+imports the pre web app folders when running on the default storage, and tidies
+away transcript copies that nothing reads.
 """
 
 import re
@@ -28,7 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from i2v import paths, probe
 
-from . import VERSION, files, legacy, render_job, routes, transcribe_job, trash
+from . import VERSION, files, legacy, render_job, routes, tidy, transcribe_job, trash
 from .config import Config
 from .httpio import DROPPED, ApiError, Request, invalid, respond, send_error, send_json
 from .jobs import JobManager
@@ -75,6 +76,11 @@ class App:
                 self.imported = legacy.import_legacy(self, legacy_root)
             except Exception:  # noqa: BLE001 - a failed import must not stop the server
                 traceback.print_exc()
+        # After the import, so anything it brought in is tidied as well.
+        try:
+            tidy.run(self)
+        except Exception:  # noqa: BLE001 - housekeeping must not stop the server
+            traceback.print_exc()
         self.thumbs.start()
 
     def shutdown(self):

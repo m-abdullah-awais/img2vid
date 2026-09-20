@@ -34,6 +34,19 @@ def slug(name):
     return text[:40].strip("-") or "project"
 
 
+def download_stem(project):
+    """The project's name as it can be saved on Windows, for a download's name.
+
+    `slug` is for folder ids, so it lowercases and replaces every space with a
+    hyphen. A file the user is about to keep should carry the name they gave the
+    project, so this only removes what Windows refuses: the nine forbidden
+    characters, control characters, and trailing dots or spaces.
+    """
+    name = "".join(" " if ord(ch) < 32 else ch for ch in project.get("name") or "")
+    name = " ".join(re.sub(r'[\\/:*?"<>|]+', " ", name).split())[:60].rstrip(" .")
+    return name or project["id"]
+
+
 def check_name(name):
     if not isinstance(name, str):
         raise invalid("Give the project a name.")

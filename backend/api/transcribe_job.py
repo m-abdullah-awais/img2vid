@@ -88,7 +88,10 @@ def start(app, request):
             out_dir = projects.folder(app, project_id, "transcript")
             old = files.transcript_files(out_dir)
             trash_id = trash.remove_files(app, stored, "transcript", old) if old else None
-            args = ["-a"] + list(audio) + ["--out-dir", out_dir] + options
+            # The SRT alone. The text and JSON the script can also write are
+            # derived from it, nothing here reads them, and a download makes the
+            # text on demand, so writing them would only leave files behind.
+            args = ["-a"] + list(audio) + ["--out-dir", out_dir, "--formats", "srt"] + options
 
             def finish(job, state):
                 return _finish(app, project_id, out_dir, trash_id, job, state)
